@@ -1,0 +1,59 @@
+/* ─── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --bg:            #080810;
+  --surface:       #0f0f1a;
+  --surface-2:     #161624;
+  --border:        #1e1e30;
+  --border-hi:     #2a2a45;
+  --text:          #e2e2f0;
+  --text-muted:    #5a5a88;
+  --accent:        #6366f1;
+  --accent-hover:  #818cf8;
+  --accent-dim:    rgba(99, 102, 241, 0.15);
+  --success:       #22c55e;
+  --warning:       #f59e0b;
+  --danger:        #ef4444;
+  --radius:        8px;
+  --radius-lg:     12px;
+}
+
+/* ─── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+input, button, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ─── Focus ring ────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

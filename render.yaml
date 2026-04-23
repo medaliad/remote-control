@@ -1,0 +1,55 @@
+# Render Blueprint for the Remote Control project.
+#
+# Two services:
+#   - rc-relay : the WebSocket signaling relay (apps/signaling)
+#   - rc-web   : the Next.js controller UI    (apps/web)
+#
+# The host agent (apps/host) is NOT deployed — it runs locally on any
+# machine you want to control and dials into rc-relay over wss://.
+#
+# After the blueprint is applied once, Render will auto-deploy on every
+# push to the connected branch.
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Relay — binary WebSocket broker. Must be a long-lived Node process with
+  # WebSocket support, so we avoid the Free plan (it sleeps and drops WS).
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: rc-relay
+    runtime: node
+    plan: starter
+    region: frankfurt            # pick the region closest to you
+    branch: main
+    rootDir: .                   # must be the repo root so npm workspaces resolve
+    buildCommand: npm install --include=dev
+    startCommand: npm --workspace apps/signaling start
+    healthCheckPath: /devices
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Web controller — Next.js UI. Reads NEXT_PUBLIC_RELAY_URL at build time
+  # and bakes it into the client bundle, so it automatically points at the
+  # rc-relay service above.
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: rc-web
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: main
+    rootDir: .
+    buildCommand: npm install --include=dev && npm --workspace apps/web run build
+    startCommand: npm --workspace apps/web exec -- next start -p $PORT
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Set this in the Render dashboard once the relay is deployed, e.g.
+      #   wss://rc-relay.onrender.com
+      # sync: false means "don't manage this from the blueprint, let me fill
+      # it in the UI." We can't use fromService.host because Render doesn't
+      # expose a property that includes the wss:// scheme.
+      - key: NEXT_PUBLIC_RELAY_URL
+        sync: false

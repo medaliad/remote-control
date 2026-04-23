@@ -1,0 +1,21 @@
+{
+  "name": "remote-control",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:host": "npm --workspace apps/host run dev",
+    "dev:relay": "npm --workspace apps/signaling run dev",
+    "build": "npm --workspaces run build --if-present",
+    "typecheck": "npm --workspaces run typecheck --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.9.0"
+  }
+}

@@ -3,6 +3,14 @@ import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
 
 /**
+ * Local agent (agent/agent.js) bridges this page to the VB6 mouse program.
+ * We keep this coupling tight on purpose: the agent only accepts loopback
+ * connections and the browser only talks to 127.0.0.1, so no rogue tab can
+ * drive your mouse just because you left control toggled on.
+ */
+const AGENT_WS_URL = "ws://127.0.0.1:8766";
+
+/**
  * Host state machine. One kind at a time — tagged union means the UI can
  * exhaustively render for the current kind and nothing else. This is what
  * makes the "Session created / Waiting / Incoming / Connected / Disconnected"
@@ -23,11 +31,72 @@ export function HostPage() {
   const [allowControl, setAllowControl] = useState(false);
   const [incomingLog, setIncomingLog] = useState<string[]>([]);
 
+  /**
+   * Agent status: "off" = we haven't tried, "connecting" = socket opening,
+   * "up" = WS open AND VB6 is attached, "no-vb6" = WS open but VB6 program
+   * isn't running yet, "down" = couldn't even reach the local agent.
+   */
+  const [agentStatus, setAgentStatus] =
+    useState<"off" | "connecting" | "up" | "no-vb6" | "down">("off");
+
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef      = useRef<Peer | null>(null);
   const streamRef    = useRef<MediaStream | null>(null);
+  const agentRef     = useRef<WebSocket | null>(null);
 
   const videoRef     = useRef<HTMLVideoElement | null>(null);
+
+  /** Close the local-agent WebSocket. Safe to call when it's already closed. */
+  const closeAgent = useCallback(() => {
+    const ws = agentRef.current;
+    agentRef.current = null;
+    if (ws) {
+      try { ws.close(); } catch { /* ignore */ }
+    }
+    setAgentStatus("off");
+  }, []);
+
+  /**
+   * Open (or reuse) a WebSocket to the local agent. The agent hands us
+   * live status about whether the VB6 program is attached; we mirror that
+   * into `agentStatus` so the operator can see it.
+   */
+  const ensureAgent = useCallback(() => {
+    const existing = agentRef.current;
+    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+      return existing;
+    }
+
+    setAgentStatus("connecting");
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(AGENT_WS_URL);
+    } catch (err) {
+      console.warn("[host] agent ws construct failed:", err);
+      setAgentStatus("down");
+      return null;
+    }
+
+    ws.onopen    = () => setAgentStatus((s) => (s === "up" ? s : "no-vb6"));
+    ws.onerror   = () => setAgentStatus("down");
+    ws.onclose   = () => {
+      if (agentRef.current === ws) {
+        agentRef.current = null;
+        setAgentStatus((s) => (s === "off" ? s : "down"));
+      }
+    };
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data as string) as { type: string; connected?: boolean };
+        if (msg.type === "agent:vb6") {
+          setAgentStatus(msg.connected ? "up" : "no-vb6");
+        }
+      } catch { /* non-JSON -- ignore */ }
+    };
+
+    agentRef.current = ws;
+    return ws;
+  }, []);
 
   /** Tear everything down. Idempotent. */
   const hardDisconnect = useCallback((reason: string) => {
@@ -37,10 +106,11 @@ export function HostPage() {
     peerRef.current = null;
     signalingRef.current?.close();
     signalingRef.current = null;
+    closeAgent();
     setAllowControl(false);
     setIncomingLog([]);
     setState({ kind: "disconnected", reason });
-  }, []);
+  }, [closeAgent]);
 
   /* ── Create session ─────────────────────────────────────────────────── */
 
@@ -154,13 +224,26 @@ export function HostPage() {
   }, [hostName, allowControl, hardDisconnect, state.kind]);
 
   /* ── Handle remote (client) input events ────────────────────────────── */
-  // HONEST UI: we just record what the client is pressing — we never inject
-  // anything at the OS level, because the browser sandbox won't let us.
+  //
+  // Mouse and wheel events are forwarded to the local agent, which relays
+  // them to the VB6 program and into Windows via SetCursorPos / mouse_event.
+  // If the agent isn't up we silently fall back to logging -- the operator
+  // still sees something happened, they just won't see the cursor move.
   const handleRemoteInput = useCallback((ev: InputEvent) => {
-    if (!allowControl) return; // shouldn't reach here but defensive
+    if (!allowControl) return; // defensive: client shouldn't have sent this
     if (ev.t === "hello") return;
+
+    // 1) Forward anything mouse-shaped to the local agent.
+    if (ev.t === "mouse" || ev.t === "wheel") {
+      const ws = agentRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify(ev)); } catch { /* agent will reconnect */ }
+      }
+    }
+
+    // 2) Keep a short event trail for the sidebar regardless.
     const line =
-      ev.t === "mouse" ? `mouse ${ev.kind}${ev.button != null ? ` btn=${ev.button}` : ""} @${ev.x.toFixed(0)},${ev.y.toFixed(0)}`
+      ev.t === "mouse" ? `mouse ${ev.kind}${ev.button != null ? ` btn=${ev.button}` : ""} @${(ev.x * 100).toFixed(1)}%,${(ev.y * 100).toFixed(1)}%`
       : ev.t === "key" ? `key ${ev.kind} ${ev.key}`
       : ev.t === "wheel" ? `wheel dx=${ev.dx} dy=${ev.dy}`
       : "input";
@@ -188,6 +271,8 @@ export function HostPage() {
     const next = !allowControl;
     setAllowControl(next);
     signalingRef.current?.send({ type: "host:setControl", allowed: next });
+    if (next) ensureAgent();
+    else closeAgent();
   };
 
   const copyCode = (code: string) => {
@@ -203,6 +288,7 @@ export function HostPage() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     peerRef.current?.close();
     signalingRef.current?.close();
+    try { agentRef.current?.close(); } catch { /* ignore */ }
   }, []);
 
   /* ── Render ─────────────────────────────────────────────────────────── */
@@ -344,8 +430,8 @@ export function HostPage() {
               <div className="toggle-label">
                 <span className="name">Allow remote input</span>
                 <span className="hint">
-                  Forwards client's mouse / keys to you over a data channel.
-                  (Demo only — events are logged, not injected into your OS.)
+                  Forwards the client's mouse events to the local VB6 agent,
+                  which moves your real cursor via the Win32 API.
                 </span>
               </div>
               <button
@@ -355,6 +441,19 @@ export function HostPage() {
                 onClick={toggleControl}
               />
             </div>
+
+            {allowControl && (
+              <div className="side-card">
+                <h3>Local mouse agent</h3>
+                <p className="muted" style={{ fontSize: 13 }}>
+                  {agentStatus === "up"      && <><strong>Connected.</strong> Mouse events are being injected into Windows via VB6.</>}
+                  {agentStatus === "no-vb6"  && <><strong>Agent running, VB6 not attached.</strong> Start <code>MouseControl.exe</code> (compiled from <code>vb6-agent/MouseControl.vbp</code>) and it should attach within a second.</>}
+                  {agentStatus === "connecting" && <>Connecting to the local agent…</>}
+                  {agentStatus === "down"    && <><strong>Can't reach the local agent.</strong> Run <code>npm start</code> inside the <code>agent/</code> folder.</>}
+                  {agentStatus === "off"     && <>Toggling on will try to connect to <code>ws://127.0.0.1:8766</code>.</>}
+                </p>
+              </div>
+            )}
 
             <div className="side-card">
               <h3>Recent events</h3>

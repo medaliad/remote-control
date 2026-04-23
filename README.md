@@ -30,8 +30,8 @@ transits the server.
 
 - Short one-time session codes (confusable-free alphabet, e.g. `K7TQ9P`)
 - Host approves every single connection request; no "remember this client"
-- Optional remote-input toggle (demo-only — events are forwarded as a data
-  channel and logged; no OS injection)
+- Optional remote-input toggle that drives a **real Windows cursor** via a
+  small VB6 program using `SetCursorPos` / `mouse_event` (Win32 API)
 - Single-origin deploy (same host serves the app and the WebSocket) so
   HTTPS/WSS just works without CORS or Mixed Content gotchas
 - Graceful disconnect handling — closing the tab, hitting "End session",
@@ -49,12 +49,84 @@ server/        Node + ws signaling / static host (TypeScript)
 web/           Vite + React + TypeScript front-end
   src/
     pages/Home.tsx      Landing page, two choices
-    pages/Host.tsx      Host state machine
+    pages/Host.tsx      Host state machine  (talks to local agent)
     pages/Client.tsx    Client state machine
     lib/signaling.ts    Typed WebSocket wrapper
     lib/webrtc.ts       Peer w/ perfect negotiation
+agent/         Node.js local bridge (browser <-> VB6)
+  agent.js            WebSocket server on 127.0.0.1:8766,
+                      TCP client to VB6 on 127.0.0.1:8765
+vb6-agent/     VB6 program that injects mouse events into Windows
+  MouseControl.vbp    VB6 project file
+  MouseControl.frm    Winsock listener + command parser
+  MouseControl.bas    Win32 API wrappers (SetCursorPos, mouse_event)
 render.yaml    One-service Render Blueprint
 ```
+
+## Remote mouse control (VB6 pipeline)
+
+By itself, the browser sandbox can't move your OS cursor. To actually drive
+the host's mouse, we add two local processes — inspired by the React ↔ Node
+↔ VB6 approach in [this write-up][vb6-article]:
+
+```
+ client browser           host browser            local agent          VB6
+ ───────────────   WebRTC ──────────────  WebSocket ───────────  TCP  ───────
+ mouse events ──▶  Host.tsx         ──▶  agent/agent.js    ──▶  MouseControl
+                   (receives over              (127.0.0.1:8766)      (127.0.0.1:8765)
+                    data channel)                                    │
+                                                                     ▼
+                                                          user32.dll: SetCursorPos,
+                                                                      mouse_event
+```
+
+[vb6-article]: https://medium.com/@sahasourav630/building-a-real-time-mouse-control-system-with-react-node-js-and-vb6-9ea67f36096f
+
+### On the host machine, one-time setup
+
+1. **Compile the VB6 program.** Open `vb6-agent/MouseControl.vbp` in Visual
+   Basic 6 (requires `MSWINSCK.OCX`, which ships with VB6). Hit
+   *File → Make MouseControl.exe*. Launch the resulting `.exe` — it binds
+   to `127.0.0.1:8765` and shows a tiny log window.
+2. **Install and start the agent:**
+   ```bash
+   cd agent
+   npm install
+   npm start
+   ```
+   The agent logs `[agent] connected to VB6 at 127.0.0.1:8765` when the two
+   are talking. It auto-reconnects if you restart either side.
+
+### On the host's browser
+
+Open the Host page as usual, approve the client, then toggle **Allow remote
+input**. The sidebar shows a live status card:
+
+- *Connected.* — agent + VB6 both reachable, cursor is being driven.
+- *Agent running, VB6 not attached.* — start `MouseControl.exe`.
+- *Can't reach the local agent.* — run `npm start` in `agent/`.
+
+### Wire protocol (agent → VB6)
+
+Newline-delimited ASCII over TCP. All coordinates are normalized 0..1.
+
+```
+MOVE 0.4125 0.8832
+DOWN 0                # 0=left, 1=middle, 2=right
+UP 0
+CLICK 2               # right-click at current cursor pos
+SCROLL -120           # positive = scroll up (Windows convention)
+PING
+```
+
+The VB6 side replies `OK\n`, `PONG\n`, or `ERR <reason>\n` per command.
+
+### Safety
+
+Both the VB6 listener and the Node agent bind to `127.0.0.1` only — nothing
+off-box can drive your mouse. The browser host only forwards input when
+**Allow remote input** is on, and the `host:setControl` signal is echoed to
+the client so they can see it flip on/off in real time.
 
 ## Local development
 
@@ -109,11 +181,12 @@ Render env vars you might want to tweak:
   onboard another client. The session ends if the host closes their tab.
 - The server only forwards signaling messages *after* the host has sent an
   explicit `host:approve`. Everything before that is rejected.
-- The "remote control" toggle is a UX affordance only. This repo never
-  injects input into your OS — the host page logs events for demo purposes.
-  To build real control, replace `handleRemoteInput` in `Host.tsx` with a
-  native-messaging / Electron / browser-extension layer that has the
-  permissions to do so.
+- The "remote control" toggle injects real mouse events via the local VB6
+  agent described above. It's gated by: (a) the host's explicit approval of
+  the session, (b) the host flipping the toggle on, (c) the VB6 program
+  being running, and (d) the Node agent being running. Any one of those
+  being off means the mouse doesn't move. The browser never talks to VB6
+  directly — only through the loopback-bound Node bridge.
 
 ## License
 

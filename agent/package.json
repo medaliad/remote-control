@@ -1,0 +1,17 @@
+{
+  "name": "remote-access-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local bridge: WebSocket from browser host <-> TCP to VB6 mouse agent",
+  "main": "agent.js",
+  "type": "module",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

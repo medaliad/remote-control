@@ -52,6 +52,17 @@ export function HostPage() {
   const peerRef      = useRef<Peer | null>(null);
   const streamRef    = useRef<MediaStream | null>(null);
   const agentRef     = useRef<WebSocket | null>(null);
+  // Outbound queue for events that arrive before the agent WebSocket has
+  // finished opening. Without this, the first ~100–500 ms of input after
+  // approve (while the WS is still in CONNECTING) are dropped — which
+  // looks exactly like "mouse doesn't move."
+  const agentQueueRef = useRef<string[]>([]);
+  // Whether we *want* the agent connection alive. Flips true on approve /
+  // control-on, false on disconnect / control-off. The reconnect loop
+  // only retries while this is true, so turning control off actually stops.
+  const agentWantedRef = useRef<boolean>(false);
+  // Backoff timer for reconnect.
+  const agentReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latches to true the first time we drop an input event because the
   // agent WS isn't open, so the console warning fires once rather than
   // once per event. Reset whenever the agent reconnects.
@@ -65,6 +76,12 @@ export function HostPage() {
 
   /** Close the local-agent WebSocket. Safe to call when it's already closed. */
   const closeAgent = useCallback(() => {
+    agentWantedRef.current = false;
+    if (agentReconnectRef.current) {
+      clearTimeout(agentReconnectRef.current);
+      agentReconnectRef.current = null;
+    }
+    agentQueueRef.current = [];
     const ws = agentRef.current;
     agentRef.current = null;
     if (ws) {
@@ -74,11 +91,27 @@ export function HostPage() {
   }, []);
 
   /**
-   * Open (or reuse) a WebSocket to the local agent. The agent hands us
-   * live status about whether the VB6 program is attached; we mirror that
-   * into `agentStatus` so the operator can see it.
+   * Open (or reuse) a WebSocket to the local agent. Opening is async:
+   *   - While CONNECTING, events are buffered into agentQueueRef.
+   *   - On OPEN, the buffer flushes and subsequent events send directly.
+   *   - On CLOSE/ERROR, we retry with a 1.5s backoff as long as
+   *     agentWantedRef is still true. This matters because the operator
+   *     might start `npm start` in agent/ AFTER approving the client —
+   *     with one-shot connect, they'd have to toggle control off/on to
+   *     recover. Now it just works.
    */
   const ensureAgent = useCallback(() => {
+    agentWantedRef.current = true;
+
+    const scheduleReconnect = () => {
+      if (!agentWantedRef.current) return;
+      if (agentReconnectRef.current) return;
+      agentReconnectRef.current = setTimeout(() => {
+        agentReconnectRef.current = null;
+        if (agentWantedRef.current) ensureAgent();
+      }, 1500);
+    };
+
     const existing = agentRef.current;
     if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
       return existing;
@@ -91,6 +124,7 @@ export function HostPage() {
     } catch (err) {
       console.warn("[host] agent ws construct failed:", err);
       setAgentStatus("down");
+      scheduleReconnect();
       return null;
     }
 
@@ -101,12 +135,19 @@ export function HostPage() {
     ws.onopen    = () => {
       agentDropWarnedRef.current = false;
       setAgentStatus((s) => (s === "up" ? s : "warming"));
+      // Flush anything the operator did in the CONNECTING window.
+      const q = agentQueueRef.current;
+      agentQueueRef.current = [];
+      for (const msg of q) {
+        try { ws.send(msg); } catch { /* agent went away mid-flush */ }
+      }
     };
     ws.onerror   = () => setAgentStatus("down");
     ws.onclose   = () => {
       if (agentRef.current === ws) {
         agentRef.current = null;
         setAgentStatus((s) => (s === "off" ? s : "down"));
+        scheduleReconnect();
       }
     };
     ws.onmessage = (ev) => {
@@ -129,6 +170,24 @@ export function HostPage() {
     agentRef.current = ws;
     return ws;
   }, []);
+
+  /** Send an input event to the agent, or queue it if the WS isn't OPEN. */
+  const sendToAgent = useCallback((ev: InputEvent) => {
+    const payload = JSON.stringify(ev);
+    const ws = agentRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(payload); return; } catch { /* fall through to queue */ }
+    }
+    // Cap the queue so a long-offline agent doesn't balloon memory.
+    // 500 events is ~8s of mousemove @60Hz — plenty for bursty reconnects.
+    const q = agentQueueRef.current;
+    if (q.length > 500) q.splice(0, q.length - 500);
+    q.push(payload);
+    // If the WS died (CLOSED) and we still want it, kick a reconnect.
+    if (agentWantedRef.current && (!ws || ws.readyState === WebSocket.CLOSED)) {
+      ensureAgent();
+    }
+  }, [ensureAgent]);
 
   /** Tear everything down. Idempotent. */
   const hardDisconnect = useCallback((reason: string) => {
@@ -297,20 +356,17 @@ export function HostPage() {
     if (ev.t === "hello") return;
 
     // 1) Forward mouse, wheel, and keyboard events to the local agent.
+    //    sendToAgent queues when the WS isn't OPEN yet and kicks off a
+    //    reconnect if needed, so events aren't silently lost during the
+    //    approve → connect handshake (or if the agent was started late).
     if (ev.t === "mouse" || ev.t === "wheel" || ev.t === "key") {
-      const ws = agentRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify(ev)); } catch { /* agent will reconnect */ }
-      } else {
-        // Log once per state change so the console is not spammed but the
-        // operator can still see *why* nothing is happening on their screen.
-        if (!agentDropWarnedRef.current) {
-          agentDropWarnedRef.current = true;
-          console.warn(
-            "[host] input received but local agent is not connected — " +
-            "events are being dropped. Run `npm start` in agent/ on this machine.",
-          );
-        }
+      sendToAgent(ev);
+      if (agentRef.current?.readyState !== WebSocket.OPEN && !agentDropWarnedRef.current) {
+        agentDropWarnedRef.current = true;
+        console.warn(
+          "[host] queueing input — local agent not connected yet. " +
+          "If this persists, run `npm start` in agent/ on this machine.",
+        );
       }
     }
 
@@ -321,7 +377,7 @@ export function HostPage() {
       : ev.t === "wheel" ? `wheel dx=${ev.dx} dy=${ev.dy}`
       : "input";
     setIncomingLog((l) => [`${fmtTime(Date.now())} — ${line}`, ...l].slice(0, 8));
-  }, []);
+  }, [sendToAgent]);
 
   /* ── Host actions ───────────────────────────────────────────────────── */
 

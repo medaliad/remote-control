@@ -207,11 +207,45 @@ function KeyUp($vk)   { [W.U]::keybd_event([byte]$vk, 0, 2, 0) }
 function TypeU($s) { foreach ($ch in $s.ToCharArray()) { [W.U]::TypeChar($ch) } }
 Write-Host "[ps] ready"
 `;
-  const ps = spawn("powershell.exe",
-    ["-NoProfile", "-NoLogo", "-NonInteractive",
-     "-ExecutionPolicy", "Bypass", "-Command", "-"],
-    { stdio: ["pipe", "pipe", "pipe"] });
-  ps.stdin.write(init + "\n");
+  // Try powershell.exe first (Windows PowerShell 5.1 — shipped with every
+  // Windows install). Fall back to pwsh.exe (PowerShell 7+) if it's missing,
+  // which is the default on freshly-provisioned dev boxes or Windows Core.
+  const PS_ARGS = ["-NoProfile", "-NoLogo", "-NonInteractive",
+                   "-ExecutionPolicy", "Bypass", "-Command", "-"];
+  const trySpawn = (exe) => {
+    try {
+      const child = spawn(exe, PS_ARGS, { stdio: ["pipe", "pipe", "pipe"] });
+      return child;
+    } catch {
+      return null;
+    }
+  };
+
+  let ps = trySpawn("powershell.exe");
+  let psExe = "powershell.exe";
+  let fellBack = false;
+  const handleSpawnError = (err) => {
+    // ENOENT / EACCES / etc. — the binary we picked isn't available.
+    if (!fellBack && (err?.code === "ENOENT" || err?.code === "EACCES")) {
+      fellBack = true;
+      console.warn(`[agent] ${psExe} not available (${err.code}); trying pwsh.exe`);
+      const fallback = trySpawn("pwsh.exe");
+      if (!fallback) {
+        console.error(
+          "[agent] NEITHER powershell.exe NOR pwsh.exe is on PATH. " +
+          "Install PowerShell 7+ or add Windows PowerShell to PATH, " +
+          "otherwise the agent can't drive the mouse.",
+        );
+        return;
+      }
+      ps = fallback;
+      psExe = "pwsh.exe";
+      attachPsHandlers();
+      ps.stdin.write(init + "\n");
+    } else {
+      console.error(`[agent] PowerShell spawn error: ${err.message}`);
+    }
+  };
 
   let ready = false;
   const queue = [];
@@ -224,24 +258,61 @@ Write-Host "[ps] ready"
   };
 
   let stdoutBuf = "";
-  ps.stdout.on("data", (d) => {
-    const chunk = String(d);
-    if (VERBOSE) process.stdout.write(`[ps-out] ${chunk}`);
-    stdoutBuf += chunk;
-    if (!ready && stdoutBuf.includes("[ps] ready")) {
-      ready = true;
-      console.log("[agent] PowerShell backend ready");
-      // Flush anything that was queued during warm-up.
-      while (queue.length) {
-        try { ps.stdin.write(queue.shift()); } catch { /* ignore */ }
+  const attachPsHandlers = () => {
+    stdoutBuf = "";
+    ps.on("error", handleSpawnError);
+    ps.stdout.on("data", (d) => {
+      const chunk = String(d);
+      if (VERBOSE) process.stdout.write(`[ps-out] ${chunk}`);
+      stdoutBuf += chunk;
+      if (!ready && stdoutBuf.includes("[ps] ready")) {
+        ready = true;
+        console.log(`[agent] PowerShell backend ready (${psExe})`);
+        // Flush anything that was queued during warm-up.
+        while (queue.length) {
+          try { ps.stdin.write(queue.shift()); } catch { /* ignore */ }
+        }
       }
+    });
+    ps.stderr.on("data", (d) => console.warn(`[ps-err] ${String(d).trim()}`));
+    ps.on("exit", (code) => {
+      ready = false;
+      console.warn(`[agent] ${psExe} exited (code=${code}) — respawning in 1s`);
+      // Auto-respawn: without this, a crashed PS (AV kill, UAC drop,
+      // Add-Type blowup after a Windows update) leaves the agent alive
+      // but unable to inject anything — events pile up in the queue and
+      // the cursor mysteriously "freezes".
+      setTimeout(() => {
+        const next = trySpawn(psExe);
+        if (!next) { handleSpawnError({ code: "ENOENT", message: "respawn failed" }); return; }
+        ps = next;
+        attachPsHandlers();
+        ps.stdin.write(init + "\n");
+      }, 1000);
+    });
+  };
+
+  if (ps) {
+    attachPsHandlers();
+    ps.stdin.write(init + "\n");
+  } else {
+    handleSpawnError({ code: "ENOENT", message: "spawn failed synchronously" });
+  }
+
+  // Ready-timeout watchdog: if Add-Type hasn't completed in 10s something's
+  // wrong (ExecutionPolicy still restrictive, AV eating the stdin pipe,
+  // corrupt .NET). Yell loudly so it shows up in the agent terminal
+  // instead of events silently queueing forever.
+  setTimeout(() => {
+    if (!ready) {
+      console.warn(
+        `[agent] ${psExe} still not ready after 10s. ` +
+        `Possible causes: ExecutionPolicy locked, antivirus blocking ` +
+        `user32.dll access, or the PS host crashed during Add-Type. ` +
+        `Re-run with VERBOSE=1 to see raw PowerShell output.`,
+      );
     }
-  });
-  ps.stderr.on("data", (d) => console.warn(`[ps-err] ${String(d).trim()}`));
-  ps.on("exit", (code) => {
-    ready = false;
-    console.warn(`[agent] PowerShell exited (code=${code})`);
-  });
+  }, 10_000);
 
   // MOUSEEVENTF_* bits: LDOWN=2 LUP=4 RDOWN=8 RUP=16 MDOWN=32 MUP=64
   const DOWN = { 0: 2,  1: 32, 2: 8  };

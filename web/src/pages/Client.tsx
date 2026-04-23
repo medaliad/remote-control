@@ -198,10 +198,23 @@ export function ClientPage({ prefillCode }: Props) {
       e.preventDefault();
       send({ t: "wheel", dx: e.deltaX, dy: e.deltaY });
     };
+    // Only capture keys when the video area is actually focused. This lets
+    // the user still type in the browser URL bar, DevTools, etc. without
+    // those keys leaking to the host.
+    //
+    // preventDefault() here stops the browser from acting on the key locally
+    // (e.g., Tab moving focus, Space scrolling). We skip preventDefault for
+    // browser-level shortcuts we can't block anyway (Ctrl+W, Ctrl+T, F5 in
+    // many browsers) -- trying just produces console warnings.
+    const isVideoFocused = () => document.activeElement === v;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!isVideoFocused()) return;
+      e.preventDefault();
       send({ t: "key", key: e.key, code: e.code, kind: "down" });
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (!isVideoFocused()) return;
+      e.preventDefault();
       send({ t: "key", key: e.key, code: e.code, kind: "up" });
     };
 
@@ -384,7 +397,9 @@ export function ClientPage({ prefillCode }: Props) {
             <h3>Tips</h3>
             <p className="muted" style={{ fontSize: 13 }}>
               If the video looks blurry, try resizing the window — the host's
-              screen is scaled to fit. Audio isn't shared.
+              screen is scaled to fit. Click the video to focus it before
+              typing, so keys route to the host. Audio plays if the host
+              ticked "Share audio" in the browser picker.
             </p>
           </div>
         </aside>

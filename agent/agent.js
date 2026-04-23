@@ -40,6 +40,81 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || ""; // "" = loopback-only
 const VERBOSE        = process.env.VERBOSE === "1";
 
 // ---------------------------------------------------------------------------
+// Keyboard mapping: browser KeyboardEvent.code -> Windows Virtual Key code
+// ---------------------------------------------------------------------------
+//
+// We use `code` (physical key position, e.g. "KeyA", "Digit1") rather than
+// `key` (the logical character produced, which depends on modifiers +
+// layout) because the receiving OS does its own modifier+layout handling
+// once we tell it which physical key was pressed. This is the same approach
+// Chrome Remote Desktop and Parsec take.
+//
+// For characters that don't have a physical code (dead keys, IME composition,
+// emoji keyboards), `key` becomes a 1-char Unicode string and the agent
+// falls back to SendInput w/ KEYEVENTF_UNICODE (Windows) / xdotool type
+// (Linux) so typing still works for non-ASCII text.
+const KEY_CODE_TO_VK = {
+  // Letters
+  KeyA: 0x41, KeyB: 0x42, KeyC: 0x43, KeyD: 0x44, KeyE: 0x45, KeyF: 0x46,
+  KeyG: 0x47, KeyH: 0x48, KeyI: 0x49, KeyJ: 0x4A, KeyK: 0x4B, KeyL: 0x4C,
+  KeyM: 0x4D, KeyN: 0x4E, KeyO: 0x4F, KeyP: 0x50, KeyQ: 0x51, KeyR: 0x52,
+  KeyS: 0x53, KeyT: 0x54, KeyU: 0x55, KeyV: 0x56, KeyW: 0x57, KeyX: 0x58,
+  KeyY: 0x59, KeyZ: 0x5A,
+  // Top-row digits
+  Digit0: 0x30, Digit1: 0x31, Digit2: 0x32, Digit3: 0x33, Digit4: 0x34,
+  Digit5: 0x35, Digit6: 0x36, Digit7: 0x37, Digit8: 0x38, Digit9: 0x39,
+  // Function row
+  F1: 0x70,  F2: 0x71,  F3: 0x72,  F4: 0x73,  F5: 0x74,  F6: 0x75,
+  F7: 0x76,  F8: 0x77,  F9: 0x78,  F10: 0x79, F11: 0x7A, F12: 0x7B,
+  // Editing
+  Backspace: 0x08, Tab: 0x09, Enter: 0x0D, Escape: 0x1B, Space: 0x20,
+  PageUp: 0x21, PageDown: 0x22, End: 0x23, Home: 0x24,
+  ArrowLeft: 0x25, ArrowUp: 0x26, ArrowRight: 0x27, ArrowDown: 0x28,
+  Insert: 0x2D, Delete: 0x2E,
+  // Modifiers (we send L/R distinctly so Ctrl+Shift+Alt combos work cleanly)
+  ShiftLeft: 0xA0,   ShiftRight: 0xA1,
+  ControlLeft: 0xA2, ControlRight: 0xA3,
+  AltLeft: 0xA4,     AltRight: 0xA5,
+  MetaLeft: 0x5B,    MetaRight: 0x5C,
+  CapsLock: 0x14, NumLock: 0x90, ScrollLock: 0x91, ContextMenu: 0x5D,
+  // Numpad
+  Numpad0: 0x60, Numpad1: 0x61, Numpad2: 0x62, Numpad3: 0x63, Numpad4: 0x64,
+  Numpad5: 0x65, Numpad6: 0x66, Numpad7: 0x67, Numpad8: 0x68, Numpad9: 0x69,
+  NumpadMultiply: 0x6A, NumpadAdd: 0x6B, NumpadSubtract: 0x6D,
+  NumpadDecimal:  0x6E, NumpadDivide:   0x6F, NumpadEnter: 0x0D,
+  // OEM / punctuation (US layout VKs — the OS maps these back via the
+  // user's active layout, so AZERTY/QWERTZ users get the right character).
+  Semicolon: 0xBA, Equal: 0xBB, Comma: 0xBC, Minus: 0xBD, Period: 0xBE,
+  Slash: 0xBF, Backquote: 0xC0, BracketLeft: 0xDB, Backslash: 0xDC,
+  BracketRight: 0xDD, Quote: 0xDE, IntlBackslash: 0xE2,
+};
+
+// Browser code -> xdotool keysym (Linux backend).
+const KEY_CODE_TO_XDO = {
+  KeyA: "a", KeyB: "b", KeyC: "c", KeyD: "d", KeyE: "e", KeyF: "f",
+  KeyG: "g", KeyH: "h", KeyI: "i", KeyJ: "j", KeyK: "k", KeyL: "l",
+  KeyM: "m", KeyN: "n", KeyO: "o", KeyP: "p", KeyQ: "q", KeyR: "r",
+  KeyS: "s", KeyT: "t", KeyU: "u", KeyV: "v", KeyW: "w", KeyX: "x",
+  KeyY: "y", KeyZ: "z",
+  Digit0: "0", Digit1: "1", Digit2: "2", Digit3: "3", Digit4: "4",
+  Digit5: "5", Digit6: "6", Digit7: "7", Digit8: "8", Digit9: "9",
+  F1: "F1", F2: "F2", F3: "F3", F4: "F4", F5: "F5", F6: "F6",
+  F7: "F7", F8: "F8", F9: "F9", F10: "F10", F11: "F11", F12: "F12",
+  Backspace: "BackSpace", Tab: "Tab", Enter: "Return", Escape: "Escape", Space: "space",
+  PageUp: "Prior", PageDown: "Next", End: "End", Home: "Home",
+  ArrowLeft: "Left", ArrowUp: "Up", ArrowRight: "Right", ArrowDown: "Down",
+  Insert: "Insert", Delete: "Delete",
+  ShiftLeft: "Shift_L", ShiftRight: "Shift_R",
+  ControlLeft: "Control_L", ControlRight: "Control_R",
+  AltLeft: "Alt_L", AltRight: "Alt_R",
+  MetaLeft: "Super_L", MetaRight: "Super_R",
+  CapsLock: "Caps_Lock",
+  Semicolon: "semicolon", Equal: "equal", Comma: "comma", Minus: "minus",
+  Period: "period", Slash: "slash", Backquote: "grave", BracketLeft: "bracketleft",
+  Backslash: "backslash", BracketRight: "bracketright", Quote: "apostrophe",
+};
+
+// ---------------------------------------------------------------------------
 // Origin check
 // ---------------------------------------------------------------------------
 //
@@ -92,12 +167,33 @@ function createWindowsBackend() {
   // AllSigned policy on some Windows installs refuses `Add-Type` inline
   // scripts -- the child would exit silently and the mouse would just
   // never move.
+  // PowerShell init: compile a tiny C# wrapper around user32.dll once. We
+  // expose Move / Btn / Scroll (mouse) and KeyDown / KeyUp / TypeUnicode
+  // (keyboard). TypeUnicode uses SendInput with KEYEVENTF_UNICODE so any
+  // codepoint the client types -- including Arabic, emoji, accented letters
+  // -- arrives intact regardless of the host's keyboard layout.
   const init = `
 $ErrorActionPreference='Continue'
 Add-Type -Name U -Namespace W -MemberDefinition @"
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, int e);
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern int GetSystemMetrics(int n);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public System.IntPtr dwExtraInfo; }
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit)]
+public struct INPUTUNION { [System.Runtime.InteropServices.FieldOffset(0)] public KEYBDINPUT ki; }
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct INPUT { public uint type; public INPUTUNION u; }
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern uint SendInput(uint n, INPUT[] inputs, int cb);
+
+public static void TypeChar(char c) {
+  INPUT[] a = new INPUT[2];
+  a[0].type = 1; a[0].u.ki.wScan = (ushort)c; a[0].u.ki.dwFlags = 4; // KEYEVENTF_UNICODE
+  a[1].type = 1; a[1].u.ki.wScan = (ushort)c; a[1].u.ki.dwFlags = 4 | 2; // + KEYUP
+  SendInput(2u, a, System.Runtime.InteropServices.Marshal.SizeOf(typeof(INPUT)));
+}
 "@
 function Move($nx,$ny) {
   $sw=[W.U]::GetSystemMetrics(0); $sh=[W.U]::GetSystemMetrics(1)
@@ -105,6 +201,10 @@ function Move($nx,$ny) {
 }
 function Btn($flag) { [W.U]::mouse_event($flag,0,0,0,0) }
 function Scroll($d) { [W.U]::mouse_event(2048,0,0,$d,0) }
+# KEYEVENTF_KEYUP = 2
+function KeyDown($vk) { [W.U]::keybd_event([byte]$vk, 0, 0, 0) }
+function KeyUp($vk)   { [W.U]::keybd_event([byte]$vk, 0, 2, 0) }
+function TypeU($s) { foreach ($ch in $s.ToCharArray()) { [W.U]::TypeChar($ch) } }
 Write-Host "[ps] ready"
 `;
   const ps = spawn("powershell.exe",
@@ -151,7 +251,12 @@ Write-Host "[ps] ready"
     label: "native:windows",
     get ready() { return ready; },
     send: (line) => {
-      const [verb, a, b] = line.split(" ");
+      // Split once on spaces for verb+args, but keep everything after the
+      // verb as a single string for TYPE (so "TYPE hello world" works).
+      const sp = line.indexOf(" ");
+      const verb = sp < 0 ? line : line.slice(0, sp);
+      const rest = sp < 0 ? "" : line.slice(sp + 1);
+      const [a, b] = rest.split(" ");
       if (verb === "MOVE") {
         writePs(`Move ${a} ${b}\n`);
       } else if (verb === "DOWN") {
@@ -163,6 +268,14 @@ Write-Host "[ps] ready"
       } else if (verb === "SCROLL") {
         // Flip: WheelEvent.deltaY positive = scroll down; Win expects +up.
         writePs(`Scroll ${-Math.round(Number(a) || 0)}\n`);
+      } else if (verb === "KEYDOWN") {
+        writePs(`KeyDown ${+a}\n`);
+      } else if (verb === "KEYUP") {
+        writePs(`KeyUp ${+a}\n`);
+      } else if (verb === "TYPE") {
+        // Escape single-quotes and backslashes for the PS string literal.
+        const esc = rest.replace(/`/g, "``").replace(/'/g, "''");
+        writePs(`TypeU '${esc}'\n`);
       }
     },
     close: () => { try { ps.kill(); } catch { /* ignore */ } },
@@ -189,7 +302,10 @@ function createLinuxBackend() {
   return {
     label: "native:linux",
     send: (line) => {
-      const [verb, a, b] = line.split(" ");
+      const sp = line.indexOf(" ");
+      const verb = sp < 0 ? line : line.slice(0, sp);
+      const rest = sp < 0 ? "" : line.slice(sp + 1);
+      const [a, b] = rest.split(" ");
       if (verb === "MOVE") {
         run(["mousemove", String(Math.round(Number(a) * screen.w)), String(Math.round(Number(b) * screen.h))]);
       } else if (verb === "DOWN") {
@@ -202,6 +318,12 @@ function createLinuxBackend() {
         const d = Number(a) || 0;
         // xdotool uses buttons 4/5 for scroll wheel up/down.
         run(["click", d < 0 ? "4" : "5"]);
+      } else if (verb === "KEYDOWN") {
+        if (a) run(["keydown", a]);
+      } else if (verb === "KEYUP") {
+        if (a) run(["keyup", a]);
+      } else if (verb === "TYPE") {
+        if (rest) run(["type", "--", rest]);
       }
     },
     close: () => { /* nothing persistent */ },
@@ -324,6 +446,33 @@ function translate(ev) {
     const delta = Math.round(Number(ev.dy) || 0);
     if (delta === 0) return [];
     return [`SCROLL ${delta}`];
+  }
+  if (ev.t === "key") {
+    // Two paths:
+    //   1) Physical key we know -> emit KEYDOWN/KEYUP with VK code. This is
+    //      what letters, digits, arrows, shift, ctrl all go through. Held
+    //      keys keep firing keydown with repeat=true in the browser; we pass
+    //      those along so game-style "walk forward" holds work.
+    //   2) Unknown `code` AND a single printable character in `key` -> emit
+    //      TYPE with that character on keydown only (skip keyup). This
+    //      handles dead keys, IME composition, emoji keyboards, etc., which
+    //      don't correspond to a physical Windows VK.
+    const platform = process.platform;
+    const map = platform === "linux" ? KEY_CODE_TO_XDO : KEY_CODE_TO_VK;
+    const token = map[ev.code];
+    if (token !== undefined) {
+      if (ev.kind === "down") return [`KEYDOWN ${token}`];
+      if (ev.kind === "up")   return [`KEYUP ${token}`];
+      return [];
+    }
+    // Fallback: for keys we don't recognize but with printable `key` content.
+    if (ev.kind === "down" && typeof ev.key === "string" && ev.key.length >= 1 && ev.key.length <= 8 && ev.key !== "Dead") {
+      // Filter out named keys like "Unidentified" / "Shift" (length>1)
+      if (ev.key.length === 1 || /^[\p{Emoji}\p{L}]+$/u.test(ev.key)) {
+        return [`TYPE ${ev.key}`];
+      }
+    }
+    return [];
   }
   return [];
 }

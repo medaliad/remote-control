@@ -52,6 +52,10 @@ export function HostPage() {
   const peerRef      = useRef<Peer | null>(null);
   const streamRef    = useRef<MediaStream | null>(null);
   const agentRef     = useRef<WebSocket | null>(null);
+  // Mirror of allowControl so async callbacks that were created before the
+  // state flipped still see the up-to-date value (React closures capture the
+  // value at creation time; a ref sidesteps that).
+  const allowControlRef = useRef<boolean>(false);
 
   const videoRef     = useRef<HTMLVideoElement | null>(null);
 
@@ -128,6 +132,7 @@ export function HostPage() {
     signalingRef.current?.close();
     signalingRef.current = null;
     closeAgent();
+    allowControlRef.current = false;
     setAllowControl(false);
     setIncomingLog([]);
     setState({ kind: "disconnected", reason });
@@ -169,8 +174,12 @@ export function HostPage() {
 
     sig.on("peer:ready", async () => {
       // Approved — start capturing the screen and wire up the peer connection.
+      // Audio: true asks the browser for tab/system audio. Chromium will show
+      // a "Share audio" checkbox in the picker; on Firefox/Safari this option
+      // may be unavailable and the call silently returns video-only. We pass
+      // it anyway — best-effort is correct here.
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         streamRef.current = stream;
 
         const peer = new Peer(sig, "host", {
@@ -197,8 +206,10 @@ export function HostPage() {
           hardDisconnect("You stopped sharing your screen.");
         });
 
-        // Reflect our approval flag to the client.
-        sig.send({ type: "host:setControl", allowed: allowControl });
+        // Reflect our approval flag to the client. We read from the ref so
+        // that a setAllowControl() call inside approveRequest() (which fires
+        // synchronously right before we get here) is already visible.
+        sig.send({ type: "host:setControl", allowed: allowControlRef.current });
 
         setState((s) =>
           s.kind === "request" || s.kind === "waiting"
@@ -246,16 +257,17 @@ export function HostPage() {
 
   /* ── Handle remote (client) input events ────────────────────────────── */
   //
-  // Mouse and wheel events are forwarded to the local agent, which relays
-  // them to the VB6 program and into Windows via SetCursorPos / mouse_event.
-  // If the agent isn't up we silently fall back to logging -- the operator
-  // still sees something happened, they just won't see the cursor move.
+  // Mouse, wheel, and keyboard events are forwarded to the local agent,
+  // which injects them via OS-native APIs (SetCursorPos / keybd_event on
+  // Windows, xdotool on Linux, CGEvent on macOS). If the agent isn't up we
+  // silently fall back to logging -- the operator still sees something
+  // happened, they just won't see the cursor move or keys register.
   const handleRemoteInput = useCallback((ev: InputEvent) => {
-    if (!allowControl) return; // defensive: client shouldn't have sent this
+    if (!allowControlRef.current) return; // defensive: client shouldn't have sent this
     if (ev.t === "hello") return;
 
-    // 1) Forward anything mouse-shaped to the local agent.
-    if (ev.t === "mouse" || ev.t === "wheel") {
+    // 1) Forward mouse, wheel, and keyboard events to the local agent.
+    if (ev.t === "mouse" || ev.t === "wheel" || ev.t === "key") {
       const ws = agentRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify(ev)); } catch { /* agent will reconnect */ }
@@ -269,12 +281,19 @@ export function HostPage() {
       : ev.t === "wheel" ? `wheel dx=${ev.dx} dy=${ev.dy}`
       : "input";
     setIncomingLog((l) => [`${fmtTime(Date.now())} — ${line}`, ...l].slice(0, 8));
-  }, [allowControl]);
+  }, []);
 
   /* ── Host actions ───────────────────────────────────────────────────── */
 
   const approveRequest = () => {
     if (state.kind !== "request") return;
+    // Auto-grant remote input the moment we approve -- this is the
+    // "Chrome Remote Desktop" behavior the user wants: one click, full
+    // control. The kill-switch (turn OFF control mid-session) is still
+    // available via the toggle in the sidebar once connected.
+    allowControlRef.current = true;
+    setAllowControl(true);
+    ensureAgent();
     signalingRef.current?.send({ type: "host:approve", requestId: state.requestId });
     setState({ kind: "connecting", code: state.code });
   };
@@ -290,6 +309,7 @@ export function HostPage() {
 
   const toggleControl = () => {
     const next = !allowControl;
+    allowControlRef.current = next;
     setAllowControl(next);
     signalingRef.current?.send({ type: "host:setControl", allowed: next });
     if (next) ensureAgent();
@@ -449,11 +469,11 @@ export function HostPage() {
 
             <div className="toggle">
               <div className="toggle-label">
-                <span className="name">Allow remote input</span>
+                <span className="name">Remote input</span>
                 <span className="hint">
-                  Forwards the client's mouse events to the local agent, which
-                  moves your real cursor via the OS (PowerShell / xdotool /
-                  osascript / VB6 depending on platform).
+                  Auto-enabled on approve — the client can already click and
+                  type. Flip this OFF any time as a kill-switch (agent
+                  disconnects, cursor stops responding instantly).
                 </span>
               </div>
               <button

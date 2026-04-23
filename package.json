@@ -12,6 +12,8 @@
     "dev:host": "npm --workspace apps/host run dev",
     "dev:relay": "npm --workspace apps/signaling run dev",
     "build": "npm --workspaces run build --if-present",
+    "build:combined": "npm --workspace apps/web run build",
+    "start": "node combined-server.mjs",
     "typecheck": "npm --workspaces run typecheck --if-present"
   },
   "devDependencies": {

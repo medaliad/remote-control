@@ -36,6 +36,11 @@ export function ClientPage({ prefillCode }: Props) {
   // The client <video> starts muted so browsers let us autoplay with an
   // audio track in the stream. The user can unmute after the first click.
   const [muted, setMuted] = useState(true);
+  // Tracks whether the video element is currently in the browser's fullscreen
+  // mode. We don't derive this from `document.fullscreenElement` on every
+  // render because the user can exit via Esc (no click handler fires) — we
+  // need the fullscreenchange event to flip the label back on its own.
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef      = useRef<Peer | null>(null);
@@ -179,6 +184,33 @@ export function ClientPage({ prefillCode }: Props) {
       if (!next) v.play().catch((err) => console.warn("[client] unmute play():", err));
     }
   };
+
+  /** Enlarge the player to full screen, or exit if already fullscreen.
+   *  We fullscreen the <video> element itself rather than a wrapper div so
+   *  the browser handles letterboxing/pillarboxing for us — the remote
+   *  screen's aspect ratio rarely matches the local display. The mouse/key
+   *  listeners attached to the same <video> element keep working while
+   *  fullscreen, so remote control doesn't break when the user expands. */
+  const toggleFullscreen = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch((err) =>
+        console.warn("[client] exitFullscreen:", err));
+    } else {
+      v.requestFullscreen().catch((err) =>
+        console.warn("[client] requestFullscreen:", err));
+    }
+  };
+
+  // Keep `isFullscreen` in sync with the browser — the user can leave
+  // fullscreen via Esc (or the OS's own UI chrome) without clicking our
+  // button, and the label needs to flip back on its own.
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   /* ── Input forwarding (only when allowed) ───────────────────────────── */
   //
@@ -443,6 +475,13 @@ export function ClientPage({ prefillCode }: Props) {
           title={muted ? "Unmute shared audio" : "Mute shared audio"}
         >
           {muted ? "Unmute" : "Mute"}
+        </button>
+        <button
+          className="btn secondary"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? "Exit fullscreen (Esc)" : "Enlarge the player to full screen"}
+        >
+          {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
         </button>
         <button className="btn danger" onClick={disconnect}>Disconnect</button>
       </div>

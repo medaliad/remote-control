@@ -160,7 +160,7 @@ function createWindowsBackend() {
   // Preload the Win32 functions into a persistent PowerShell host. The
   // `Add-Type` call compiles a tiny C# wrapper on first use (~200-600 ms on
   // a cold machine); until that finishes, any command we pipe in would fail
-  // with "Move is not recognized". So we queue writes until the PS process
+  // with "DoMove is not recognized". So we queue writes until the PS process
   // prints "[ps] ready" on stdout, and only then flush the queue.
   //
   // We also pass `-ExecutionPolicy Bypass` because the default Restricted /
@@ -168,8 +168,8 @@ function createWindowsBackend() {
   // scripts -- the child would exit silently and the mouse would just
   // never move.
   // PowerShell init: compile a tiny C# wrapper around user32.dll once. We
-  // expose Move / Btn / Scroll (mouse) and KeyDown / KeyUp / TypeUnicode
-  // (keyboard). TypeUnicode uses SendInput with KEYEVENTF_UNICODE so any
+  // expose DoMove / DoBtn / DoScroll (mouse) and DoKeyDown / DoKeyUp / DoType
+  // (keyboard). DoType uses SendInput with KEYEVENTF_UNICODE so any
   // codepoint the client types -- including Arabic, emoji, accented letters
   // -- arrives intact regardless of the host's keyboard layout.
   const init = `
@@ -195,16 +195,25 @@ public static void TypeChar(char c) {
   SendInput(2u, a, System.Runtime.InteropServices.Marshal.SizeOf(typeof(INPUT)));
 }
 "@
-function Move($nx,$ny) {
+# Helpers are named Do* (not Move / Btn / Scroll) because PowerShell ships
+# built-in aliases like 'Move' -> 'Move-Item'. If the function definition
+# below ever fails to register -- Add-Type error, scope weirdness when reading
+# from stdin, a respawn that half-succeeds -- piping 'Move 0.5 0.5' would
+# silently resolve to 'Move-Item 0.5 0.5' and try to rename files named
+# '0.5', not move the cursor. Using names that aren't also cmdlet aliases
+# makes that failure mode loud ("DoMove is not recognized") instead of
+# silently shuffling files around on disk. 'global:' forces them into the
+# global session state so they survive whatever scope the stdin lines run in.
+function global:DoMove($nx,$ny) {
   $sw=[W.U]::GetSystemMetrics(0); $sh=[W.U]::GetSystemMetrics(1)
   [W.U]::SetCursorPos([int]($sw*$nx),[int]($sh*$ny)) | Out-Null
 }
-function Btn($flag) { [W.U]::mouse_event($flag,0,0,0,0) }
-function Scroll($d) { [W.U]::mouse_event(2048,0,0,$d,0) }
+function global:DoBtn($flag) { [W.U]::mouse_event($flag,0,0,0,0) }
+function global:DoScroll($d) { [W.U]::mouse_event(2048,0,0,$d,0) }
 # KEYEVENTF_KEYUP = 2
-function KeyDown($vk) { [W.U]::keybd_event([byte]$vk, 0, 0, 0) }
-function KeyUp($vk)   { [W.U]::keybd_event([byte]$vk, 0, 2, 0) }
-function TypeU($s) { foreach ($ch in $s.ToCharArray()) { [W.U]::TypeChar($ch) } }
+function global:DoKeyDown($vk) { [W.U]::keybd_event([byte]$vk, 0, 0, 0) }
+function global:DoKeyUp($vk)   { [W.U]::keybd_event([byte]$vk, 0, 2, 0) }
+function global:DoType($s) { foreach ($ch in $s.ToCharArray()) { [W.U]::TypeChar($ch) } }
 # Self-test: read current cursor position, nudge right 2px, then put it back.
 # If you see a tiny cursor jiggle on agent startup, OS injection works. If
 # you don't, antivirus or UAC is blocking user32 and that's the root cause.
@@ -355,24 +364,24 @@ Write-Host "[ps] ready"
       const rest = sp < 0 ? "" : line.slice(sp + 1);
       const [a, b] = rest.split(" ");
       if (verb === "MOVE") {
-        writePs(`Move ${a} ${b}\n`);
+        writePs(`DoMove ${a} ${b}\n`);
       } else if (verb === "DOWN") {
-        writePs(`Btn ${DOWN[+a] ?? 2}\n`);
+        writePs(`DoBtn ${DOWN[+a] ?? 2}\n`);
       } else if (verb === "UP") {
-        writePs(`Btn ${UP[+a] ?? 4}\n`);
+        writePs(`DoBtn ${UP[+a] ?? 4}\n`);
       } else if (verb === "CLICK") {
-        writePs(`Btn ${DOWN[+a] ?? 2}\nBtn ${UP[+a] ?? 4}\n`);
+        writePs(`DoBtn ${DOWN[+a] ?? 2}\nDoBtn ${UP[+a] ?? 4}\n`);
       } else if (verb === "SCROLL") {
         // Flip: WheelEvent.deltaY positive = scroll down; Win expects +up.
-        writePs(`Scroll ${-Math.round(Number(a) || 0)}\n`);
+        writePs(`DoScroll ${-Math.round(Number(a) || 0)}\n`);
       } else if (verb === "KEYDOWN") {
-        writePs(`KeyDown ${+a}\n`);
+        writePs(`DoKeyDown ${+a}\n`);
       } else if (verb === "KEYUP") {
-        writePs(`KeyUp ${+a}\n`);
+        writePs(`DoKeyUp ${+a}\n`);
       } else if (verb === "TYPE") {
         // Escape single-quotes and backslashes for the PS string literal.
         const esc = rest.replace(/`/g, "``").replace(/'/g, "''");
-        writePs(`TypeU '${esc}'\n`);
+        writePs(`DoType '${esc}'\n`);
       }
     },
     close: () => { try { ps.kill(); } catch { /* ignore */ } },
@@ -653,3 +662,4 @@ process.on("SIGINT", () => {
   wss.close();
   process.exit(0);
 });
+

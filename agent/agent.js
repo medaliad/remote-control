@@ -205,13 +205,38 @@ function Scroll($d) { [W.U]::mouse_event(2048,0,0,$d,0) }
 function KeyDown($vk) { [W.U]::keybd_event([byte]$vk, 0, 0, 0) }
 function KeyUp($vk)   { [W.U]::keybd_event([byte]$vk, 0, 2, 0) }
 function TypeU($s) { foreach ($ch in $s.ToCharArray()) { [W.U]::TypeChar($ch) } }
+# Self-test: read current cursor position, nudge right 2px, then put it back.
+# If you see a tiny cursor jiggle on agent startup, OS injection works. If
+# you don't, antivirus or UAC is blocking user32 and that's the root cause.
+try {
+  Add-Type -Name P -Namespace W -MemberDefinition @"
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct POINT { public int X; public int Y; }
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+"@
+  $p = New-Object -TypeName "W.P+POINT"
+  [void][W.P]::GetCursorPos([ref]$p)
+  [W.U]::SetCursorPos($p.X + 2, $p.Y) | Out-Null
+  Start-Sleep -Milliseconds 50
+  [W.U]::SetCursorPos($p.X, $p.Y) | Out-Null
+  Write-Host "[ps] self-test passed"
+} catch {
+  Write-Host "[ps] self-test FAILED: $_"
+}
 Write-Host "[ps] ready"
 `;
-  // Try powershell.exe first (Windows PowerShell 5.1 — shipped with every
-  // Windows install). Fall back to pwsh.exe (PowerShell 7+) if it's missing,
-  // which is the default on freshly-provisioned dev boxes or Windows Core.
+  // Try the absolute path to Windows PowerShell 5.1 first — this always
+  // exists on Windows 7+ regardless of PATH / user environment / remote
+  // session weirdness. Fall back to `powershell.exe` on PATH, then to
+  // `pwsh.exe` (PowerShell 7+) for Windows Core or dev boxes that
+  // uninstalled the legacy one.
   const PS_ARGS = ["-NoProfile", "-NoLogo", "-NonInteractive",
                    "-ExecutionPolicy", "Bypass", "-Command", "-"];
+  const PS_CANDIDATES = [
+    `${process.env.SystemRoot || "C:\\Windows"}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+    "powershell.exe",
+    "pwsh.exe",
+  ];
   const trySpawn = (exe) => {
     try {
       const child = spawn(exe, PS_ARGS, { stdio: ["pipe", "pipe", "pipe"] });
@@ -221,25 +246,26 @@ Write-Host "[ps] ready"
     }
   };
 
-  let ps = trySpawn("powershell.exe");
-  let psExe = "powershell.exe";
-  let fellBack = false;
+  let psIdx = 0;
+  let psExe = PS_CANDIDATES[psIdx];
+  let ps = trySpawn(psExe);
   const handleSpawnError = (err) => {
-    // ENOENT / EACCES / etc. — the binary we picked isn't available.
-    if (!fellBack && (err?.code === "ENOENT" || err?.code === "EACCES")) {
-      fellBack = true;
-      console.warn(`[agent] ${psExe} not available (${err.code}); trying pwsh.exe`);
-      const fallback = trySpawn("pwsh.exe");
-      if (!fallback) {
+    if (err?.code === "ENOENT" || err?.code === "EACCES") {
+      psIdx += 1;
+      if (psIdx >= PS_CANDIDATES.length) {
         console.error(
-          "[agent] NEITHER powershell.exe NOR pwsh.exe is on PATH. " +
-          "Install PowerShell 7+ or add Windows PowerShell to PATH, " +
-          "otherwise the agent can't drive the mouse.",
+          "[agent] Tried all PowerShell candidates and none worked:",
+          PS_CANDIDATES.join(", "),
+          "\nInstall PowerShell 7+ from https://aka.ms/powershell, " +
+          "or re-enable the stock Windows PowerShell, or the agent can't drive the mouse.",
         );
         return;
       }
-      ps = fallback;
-      psExe = "pwsh.exe";
+      psExe = PS_CANDIDATES[psIdx];
+      console.warn(`[agent] PowerShell candidate #${psIdx} failed (${err.code}); trying ${psExe}`);
+      const next = trySpawn(psExe);
+      if (!next) { handleSpawnError({ code: "ENOENT", message: "sync fail" }); return; }
+      ps = next;
       attachPsHandlers();
       ps.stdin.write(init + "\n");
     } else {

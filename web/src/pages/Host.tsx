@@ -547,6 +547,38 @@ export function HostPage() {
       {state.kind === "connected" && (
         <div className="session-view">
           <div>
+            {/* Big, unmissable banner when remote input is enabled but the
+                agent isn't up. Without this, the operator sees their own
+                preview playing fine and has no idea why the client's clicks
+                aren't landing. */}
+            {allowControl && agentStatus !== "up" && (
+              <div
+                className="alert"
+                style={{
+                  background: agentStatus === "down" ? "#5a1a1a" : "#4a3a1a",
+                  border: `1px solid ${agentStatus === "down" ? "#d94848" : "#d9a14a"}`,
+                  color: "#fff",
+                  padding: "12px 14px",
+                  borderRadius: 8,
+                  marginBottom: 12,
+                }}
+              >
+                <strong>
+                  {agentStatus === "down" && "Remote cursor will not move — local agent is offline."}
+                  {agentStatus === "warming" && "Starting local agent… your cursor will respond in a moment."}
+                  {agentStatus === "connecting" && "Connecting to local agent…"}
+                  {agentStatus === "off" && "Local agent not started."}
+                </strong>
+                {agentStatus === "down" && (
+                  <div style={{ marginTop: 6, fontSize: 13 }}>
+                    Open a terminal in the <code>agent/</code> folder and run <code>npm start</code>,
+                    or double-click <code>start-host.bat</code> from the project root.
+                    When the agent boots correctly you should see a tiny cursor
+                    jiggle on this screen.
+                  </div>
+                )}
+              </div>
+            )}
             <div className="video-frame">
               <video ref={videoRef} autoPlay muted playsInline />
             </div>

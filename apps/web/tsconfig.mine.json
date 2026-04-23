@@ -18,8 +18,7 @@
     "types": ["node", "react"],
     "paths": {
       "@/*": ["./src/*"],
-      "@rc/protocol": ["../../packages/protocol/src/index.ts"],
-      "*.module.css": ["./__css-stub.d.ts"]
+      "@rc/protocol": ["../../packages/protocol/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "__css-stub.d.ts"],

@@ -29,6 +29,12 @@ export interface TransportPort {
   onControl(handler: (msg: ControlMessage) => void): void;
   /** Register a handler for incoming mic PCM from the controller. */
   onMic(handler: (pcm: Buffer) => void): void;
+  /**
+   * Fires once when the socket closes (clean or not). Used by the host to
+   * drive a reconnect loop — important behind reverse proxies (Render,
+   * Cloudflare, Fly) that reap idle WebSockets after ~60s.
+   */
+  onClose(handler: (info: { code: number; reason: string }) => void): void;
   close(): void;
 }
 

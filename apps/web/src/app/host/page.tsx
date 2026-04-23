@@ -6,20 +6,29 @@ import styles from "./page.module.css";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function relayHttpUrl(): string {
-  // 1. Build-time override (set in Render / Vercel dashboard) — accept either
-  // the wss://relay.example.com form or an https://relay.example.com form.
-  const envUrl = process.env.NEXT_PUBLIC_RELAY_URL;
-  if (envUrl) {
-    return envUrl
-      .replace(/^wss?:\/\//, (m) => (m === "wss://" ? "https://" : "http://"))
-      .replace(/\/relay$/, "");
+/**
+ * Base URL where the web UI + relay is publicly reachable. Derived from the
+ * host agent's configured relay URL when we have it (so a localhost /host page
+ * still builds a share link that points at the public relay), falling back to
+ * the page's own origin.
+ */
+function publicBase(relayUrl: string | undefined): string {
+  if (relayUrl) {
+    // wss://host[:port]/relay  →  https://host[:port]
+    // ws://host[:port]/relay   →  http://host[:port]
+    try {
+      const u = new URL(relayUrl);
+      const scheme = u.protocol === "wss:" ? "https:" : "http:";
+      return `${scheme}//${u.host}`;
+    } catch { /* fall through */ }
   }
+  if (typeof window === "undefined") return "";
+  const { protocol, host } = window.location;
+  return `${protocol}//${host}`;
+}
 
-  if (typeof window === "undefined") return "http://localhost:4000";
-  const { protocol, hostname } = window.location;
-  const base = protocol === "https:" ? `https://${window.location.host}` : `http://${hostname}:4000`;
-  return base.replace(/\/relay$/, "");
+function relayHttpUrl(relayUrl: string | undefined): string {
+  return publicBase(relayUrl);
 }
 
 /** Local info server on the host machine — loopback-only by design. */
@@ -29,19 +38,19 @@ function localInfoUrl(): string {
 }
 
 /** URL to open on another device to land on the picker. */
-function pickerUrl(): string {
-  if (typeof window === "undefined") return "";
-  const { protocol, hostname, port } = window.location;
-  return `${protocol}//${hostname}${port ? `:${port}` : ""}/`;
+function pickerUrl(relayUrl: string | undefined): string {
+  const base = publicBase(relayUrl);
+  return base ? `${base}/` : "";
 }
 
 /**
  * One-tap share URL that auto-pairs the controller to this host.
  * The picker reads `?d=<deviceId>&p=<pin>` and calls connect() automatically.
- * This is the "zero-click" CRD-style flow — paste in Slack/Teams/iMessage.
+ * Built from the CONFIGURED relay so it works from outside this machine —
+ * this is the key difference from naively using window.location.
  */
-function shareUrl(deviceId: string, pin: string): string {
-  const base = pickerUrl();
+function shareUrl(deviceId: string, pin: string, relayUrl: string | undefined): string {
+  const base = pickerUrl(relayUrl);
   if (!base) return "";
   const qs = new URLSearchParams({ d: deviceId, p: pin });
   return `${base}?${qs.toString()}`;
@@ -51,6 +60,8 @@ interface LocalInfo {
   deviceId:   string;
   deviceName: string;
   pin:        string;
+  relayUrl?:  string; // new — surfaced by the host agent so the link we
+                      // generate points at the public relay.
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -78,9 +89,9 @@ export default function HostPage() {
   }, []);
 
   // Fetch status (available / busy) from the relay.
-  const pollRelay = useCallback(async (deviceId: string) => {
+  const pollRelay = useCallback(async (deviceId: string, relayUrl: string | undefined) => {
     try {
-      const res = await fetch(`${relayHttpUrl()}/devices`);
+      const res = await fetch(`${relayHttpUrl(relayUrl)}/devices`);
       if (!res.ok) throw new Error(`relay ${res.status}`);
       const data = await res.json() as { devices: PublicDevice[] };
       const me = data.devices.find((d) => d.deviceId === deviceId);
@@ -98,8 +109,8 @@ export default function HostPage() {
 
   useEffect(() => {
     if (!info) return;
-    void pollRelay(info.deviceId);
-    const id = setInterval(() => pollRelay(info.deviceId), 2000);
+    void pollRelay(info.deviceId, info.relayUrl);
+    const id = setInterval(() => pollRelay(info.deviceId, info.relayUrl), 2000);
     return () => clearInterval(id);
   }, [info, pollRelay]);
 
@@ -168,12 +179,12 @@ export default function HostPage() {
 
             <div className={styles.urlLabel}>One-tap share link (auto-pairs):</div>
             <div className={styles.urlRow}>
-              <span className={styles.urlText} title={shareUrl(info.deviceId, info.pin)}>
-                {shareUrl(info.deviceId, info.pin)}
+              <span className={styles.urlText} title={shareUrl(info.deviceId, info.pin, info.relayUrl)}>
+                {shareUrl(info.deviceId, info.pin, info.relayUrl)}
               </span>
               <button
                 className={`${styles.copyBtn} ${copyDone === "share" ? styles.copyDone : ""}`}
-                onClick={() => copy(shareUrl(info.deviceId, info.pin), "share")}
+                onClick={() => copy(shareUrl(info.deviceId, info.pin, info.relayUrl), "share")}
               >
                 {copyDone === "share" ? "✓ Copied" : "Copy link"}
               </button>
@@ -181,10 +192,10 @@ export default function HostPage() {
 
             <div className={styles.urlLabel}>Or pair manually with the PIN:</div>
             <div className={styles.urlRow}>
-              <span className={styles.urlText}>{pickerUrl()}</span>
+              <span className={styles.urlText}>{pickerUrl(info.relayUrl)}</span>
               <button
                 className={`${styles.copyBtn} ${copyDone === "url" ? styles.copyDone : ""}`}
-                onClick={() => copy(pickerUrl(), "url")}
+                onClick={() => copy(pickerUrl(info.relayUrl), "url")}
               >
                 {copyDone === "url" ? "✓ Copied" : "Copy"}
               </button>

@@ -2,39 +2,111 @@
 /**
  * rc-host — one-command launcher for the Remote Control host.
  *
+ * Usage:
+ *   npm run host
+ *   npm run host -- --relay wss://relay.example.com/relay
+ *   node bin/rc-host.mjs --relay wss://relay.example.com/relay --port 3000
+ *
+ * Flags:
+ *   --relay <url>   WebSocket URL to register with. Persists to config.json
+ *                   so future launches pick it up without the flag.
+ *   --port  <n>     Port for the combined web + relay server (default 3000).
+ *   --no-browser    Don't auto-open the browser.
+ *   -h / --help     Show this message.
+ *
  * What this does, so a user never has to run more than a single command:
  *   1. starts the combined web+relay server (port $PORT, default 3000)
- *   2. starts the host agent as a child, pointed at ws://localhost:<port>/relay
+ *   2. starts the host agent as a child, registered with the chosen relay
  *   3. waits for both to be healthy
- *   4. opens the default browser to /host so the user sees PIN + device name
- *   5. on Ctrl-C (or SIGTERM from a service manager) cleanly stops both
+ *   4. opens the default browser to /host
+ *   5. on Ctrl-C cleanly stops both
  *
- * Zero deps — uses only built-in node modules. Safe to run as a login item,
- * launchd agent, systemd --user unit, or Windows Startup shortcut.
- *
- * Env vars you can override (all optional):
- *   PORT         combined server port (default 3000)
- *   LOCAL_PORT   host-agent loopback info port (default 4001)
- *   DEVICE_NAME  override display name (default OS hostname)
- *   RELAY_URL    point the host at a different relay (default ws://localhost:${PORT}/relay)
- *   NO_BROWSER   set to any non-empty value to suppress auto-open
+ * Zero deps — uses only built-in node modules.
  */
 
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { existsSync } from "node:fs";
-import { platform } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, platform } from "node:os";
 
-const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT      = resolve(__dirname, "..");
 
-const PORT       = Number(process.env.PORT ?? 3000);
+// ─── Arg parsing (tiny, zero-dep) ─────────────────────────────────────────────
+
+function parseArgs(argv) {
+  const out = { relay: null, port: null, noBrowser: false, help: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const next = argv[i + 1];
+    if (a === "-h" || a === "--help") { out.help = true; continue; }
+    if (a === "--no-browser" || a === "--no-open") { out.noBrowser = true; continue; }
+    if (a === "--relay" && next && !next.startsWith("-")) { out.relay = next; i++; continue; }
+    if (a.startsWith("--relay=")) { out.relay = a.slice("--relay=".length); continue; }
+    if (a === "--port" && next && !next.startsWith("-")) { out.port = next; i++; continue; }
+    if (a.startsWith("--port=")) { out.port = a.slice("--port=".length); continue; }
+    // ignore unknowns for forward-compat
+  }
+  return out;
+}
+
+const args = parseArgs(process.argv.slice(2));
+if (args.help) {
+  process.stdout.write(
+`rc-host — one-command launcher for the Remote Control host.
+
+Usage:
+  npm run host                                    start with saved or default settings
+  npm run host -- --relay wss://host/relay        set & persist the relay URL
+  npm run host -- --port 3001                     use a different port
+  npm run host -- --no-browser                    don't open a browser tab
+
+Persisted settings live in:
+  Windows : %APPDATA%\\remote-control\\config.json
+  macOS/Linux : $XDG_CONFIG_HOME/remote-control/config.json  (fallback ~/.config/…)
+`);
+  process.exit(0);
+}
+
+const PORT       = Number(args.port ?? process.env.PORT ?? 3000);
 const LOCAL_PORT = Number(process.env.LOCAL_PORT ?? 4001);
-const RELAY_URL  = process.env.RELAY_URL ?? `ws://localhost:${PORT}/relay`;
-const OPEN_BROWSER = !process.env.NO_BROWSER;
+const OPEN_BROWSER = !args.noBrowser && !process.env.NO_BROWSER;
+
+// ─── Persist relay URL if --relay was passed ──────────────────────────────────
+// Must match apps/host/src/infrastructure/host-config.ts exactly, so the host
+// agent that starts below reads the same file.
+
+function configDir() {
+  if (platform() === "win32") {
+    const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+    return join(appData, "remote-control");
+  }
+  const xdg = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  return join(xdg, "remote-control");
+}
+
+function loadConfig() {
+  const file = join(configDir(), "config.json");
+  if (!existsSync(file)) return {};
+  try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; }
+}
+
+function saveConfig(patch) {
+  const dir = configDir();
+  mkdirSync(dir, { recursive: true });
+  const merged = { ...loadConfig(), ...patch };
+  writeFileSync(join(dir, "config.json"), JSON.stringify(merged, null, 2) + "\n", "utf8");
+  return merged;
+}
+
+if (args.relay) {
+  saveConfig({ relayUrl: args.relay });
+  process.stdout.write(`[rc-host] saved relay → ${args.relay}\n`);
+}
+
+const persistedRelay = loadConfig().relayUrl;
+const RELAY_URL = process.env.RELAY_URL ?? persistedRelay ?? `ws://localhost:${PORT}/relay`;
 
 // ─── Pretty prefixed output ───────────────────────────────────────────────────
 
@@ -67,8 +139,8 @@ function npmCmd() {
 // ─── Child process helpers ────────────────────────────────────────────────────
 
 /** Spawn a child, prefix its stdout/stderr with a coloured tag. */
-function startChild(label, color, cmd, args, extraEnv) {
-  const child = spawn(cmd, args, {
+function startChild(label, color, cmd, cmdArgs, extraEnv) {
+  const child = spawn(cmd, cmdArgs, {
     cwd: ROOT,
     shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "pipe"],
@@ -120,7 +192,7 @@ async function main() {
   info(`starting combined web+relay on :${PORT}`);
   const server = startChild("web  ", COLORS.cyan, process.execPath, ["combined-server.mjs"], { PORT: String(PORT) });
 
-  info(`starting host agent (relay = ${RELAY_URL})`);
+  info(`starting host agent  relay=${RELAY_URL}`);
   const host = startChild("host ", COLORS.yellow, npmCmd(), ["--workspace", "apps/host", "run", "start"], {
     RELAY_URL,
     LOCAL_PORT: String(LOCAL_PORT),
@@ -144,20 +216,17 @@ async function main() {
 
   info("waiting for web UI…");
   const webOk = await waitForUrl(`http://localhost:${PORT}/`);
-  if (!webOk) { warn(`web UI didn't respond on :${PORT} within 30s — still trying`); }
+  if (!webOk) warn(`web UI didn't respond on :${PORT} within 30s — still trying`);
 
   info("waiting for host agent…");
   const hostOk = await waitForUrl(`http://localhost:${LOCAL_PORT}/info`);
-  if (!hostOk) { warn(`host agent didn't respond on :${LOCAL_PORT} within 30s — still trying`); }
+  if (!hostOk) warn(`host agent didn't respond on :${LOCAL_PORT} within 30s — still trying`);
 
   const hostUrl = `http://localhost:${PORT}/host`;
   info(`${COLORS.green}${COLORS.bold}ready${COLORS.reset}  →  ${hostUrl}`);
 
-  if (OPEN_BROWSER) {
-    openBrowser(hostUrl);
-  } else {
-    info("NO_BROWSER set — not auto-opening");
-  }
+  if (OPEN_BROWSER) openBrowser(hostUrl);
+  else              info("NO_BROWSER / --no-browser set — not auto-opening");
 }
 
 main().catch((err) => die(err?.stack ?? String(err)));

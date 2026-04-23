@@ -42,8 +42,9 @@ const TAG_CONTROL = 0x01; // see packages/protocol/src/transport.ts
 const devices = new Map(); // deviceId → { deviceId, deviceName, pin, hostWs, controller }
 
 function sendControl(ws, msg) {
-  const json = Buffer.from(JSON.stringify(msg), "utf8");
-  ws.send(Buffer.concat([Buffer.from([TAG_CONTROL]), json]), { binary: true });
+  try {
+    ws.send(Buffer.concat([Buffer.from([TAG_CONTROL]), Buffer.from(JSON.stringify(msg), "utf8")]), { binary: true });
+  } catch { /* socket already closed — ignore */ }
 }
 
 function parseControl(data) {
@@ -55,7 +56,6 @@ function parseControl(data) {
 // ─── HTTP server ─────────────────────────────────────────────────────────────
 
 const httpServer = createServer(async (req, res) => {
-  // CORS — same-origin in production, but kept for flexibility / dev.
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
 
@@ -64,7 +64,6 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
-  // Relay-only endpoint.
   if (req.url === "/devices" && req.method === "GET") {
     const list = [];
     for (const d of devices.values()) {
@@ -80,7 +79,6 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
-  // Everything else → Next.js.
   try {
     await nextHandler(req, res);
   } catch (err) {
@@ -104,7 +102,17 @@ httpServer.on("upgrade", (req, socket, head) => {
   });
 });
 
+// ── Server-side keepalive ────────────────────────────────────────────────────
+// Detect half-dead sockets (client silently gone) within ~30s so we don't
+// keep stale entries in `devices`. Pattern: tag each ws with .isAlive, reset
+// it on every pong, and terminate any ws that didn't pong in the last tick.
+
+const PING_INTERVAL_MS = 30_000;
+
 wss.on("connection", (ws) => {
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
+
   let joined = null; // { role: "host" | "controller", deviceId }
 
   ws.on("message", (raw) => {
@@ -117,12 +125,22 @@ wss.on("connection", (ws) => {
       }
 
       if (msg.type === "register-host") {
+        // Newest-wins semantics: if this deviceId is already registered,
+        // boot the old socket and let this one in. This fixes "device
+        // already online" after a reconnect where the server hadn't yet
+        // noticed the previous socket had died (common behind Render /
+        // Cloudflare / Fly's idle reaper).
         const existing = devices.get(msg.deviceId);
-        if (existing && existing.hostWs.readyState <= 1) {
-          sendControl(ws, { type: "error", reason: "device already online" });
-          ws.close();
-          return;
+        if (existing && existing.hostWs !== ws) {
+          console.log(`[relay] replacing stale host registration for "${existing.deviceName}" (${msg.deviceId.slice(0, 8)}…)`);
+          try { existing.hostWs.terminate(); } catch { /* ignore */ }
+          // If a controller was paired to the stale host, tell them.
+          if (existing.controller?.ws?.readyState === 1) {
+            sendControl(existing.controller.ws, { type: "peer-left", role: "host" });
+          }
+          devices.delete(msg.deviceId);
         }
+
         devices.set(msg.deviceId, {
           deviceId:   msg.deviceId,
           deviceName: msg.deviceName,
@@ -191,6 +209,20 @@ wss.on("connection", (ws) => {
     }
   });
 });
+
+// Ping every connected client every 30s. Any socket that didn't pong since
+// the last tick gets terminated; its `close` handler then cleans up state.
+const pingInterval = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      try { ws.terminate(); } catch { /* ignore */ }
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch { /* will be caught by close */ }
+  }
+}, PING_INTERVAL_MS);
+wss.on("close", () => clearInterval(pingInterval));
 
 // ─── Listen ──────────────────────────────────────────────────────────────────
 

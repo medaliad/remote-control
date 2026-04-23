@@ -4,11 +4,9 @@ import { TAG_CONTROL, type ControlMessage, type PublicDevice } from "@rc/protoco
 
 const PORT = Number(process.env.PORT ?? 4000);
 
-/**
- * One entry per online host. `deviceId` is the stable key — it survives host
- * restarts. `pin` is regenerated every time the host process starts and is
- * never exposed over HTTP.
- */
+/** Extra fields we attach to a ws for the ping-pong keepalive watchdog. */
+type AliveWs = WebSocket & { isAlive?: boolean };
+
 interface DeviceEntry {
   deviceId:   string;
   deviceName: string;
@@ -19,12 +17,16 @@ interface DeviceEntry {
 
 const devices = new Map<string, DeviceEntry>();
 
+const PING_INTERVAL_MS = 30_000;
+
 // ─── Framing helpers ──────────────────────────────────────────────────────────
 
 function sendControl(ws: WebSocket, msg: ControlMessage): void {
-  const json = Buffer.from(JSON.stringify(msg), "utf8");
-  const framed = Buffer.concat([Buffer.from([TAG_CONTROL]), json]);
-  ws.send(framed, { binary: true });
+  try {
+    const json = Buffer.from(JSON.stringify(msg), "utf8");
+    const framed = Buffer.concat([Buffer.from([TAG_CONTROL]), json]);
+    ws.send(framed, { binary: true });
+  } catch { /* socket already closed — ignore */ }
 }
 
 function parseControl(data: Buffer): ControlMessage | null {
@@ -74,11 +76,14 @@ type JoinedAs =
   | { role: "host";       deviceId: string }
   | { role: "controller"; deviceId: string };
 
-wss.on("connection", (ws) => {
+wss.on("connection", (rawWs) => {
+  const ws = rawWs as AliveWs;
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
+
   let joined: JoinedAs | null = null;
 
   ws.on("message", (raw: Buffer) => {
-    // First message must register/connect.
     if (!joined) {
       const msg = parseControl(raw);
       if (!msg) {
@@ -88,12 +93,20 @@ wss.on("connection", (ws) => {
       }
 
       if (msg.type === "register-host") {
+        // Newest-wins: if a prior socket is still tracked for this device,
+        // boot it — it's almost certainly a half-open leftover from a flaky
+        // proxy path (Render/Cloudflare idle-reap → host reconnects before
+        // we've noticed the old socket died).
         const existing = devices.get(msg.deviceId);
-        if (existing && existing.hostWs.readyState <= 1 /* CONNECTING | OPEN */) {
-          sendControl(ws, { type: "error", reason: "device already online" });
-          ws.close();
-          return;
+        if (existing && existing.hostWs !== ws) {
+          console.log(`[relay] replacing stale host registration for "${existing.deviceName}" (${msg.deviceId.slice(0, 8)}…)`);
+          try { existing.hostWs.terminate(); } catch { /* ignore */ }
+          if (existing.controller?.ws.readyState === 1) {
+            sendControl(existing.controller.ws, { type: "peer-left", role: "host" });
+          }
+          devices.delete(msg.deviceId);
         }
+
         const entry: DeviceEntry = {
           deviceId:   msg.deviceId,
           deviceName: msg.deviceName,
@@ -110,7 +123,7 @@ wss.on("connection", (ws) => {
 
       if (msg.type === "connect-controller") {
         const entry = devices.get(msg.deviceId);
-        if (!entry || entry.hostWs.readyState !== 1 /* OPEN */) {
+        if (!entry || entry.hostWs.readyState !== 1) {
           sendControl(ws, { type: "error", reason: "device not online" });
           ws.close();
           return;
@@ -129,7 +142,6 @@ wss.on("connection", (ws) => {
         entry.controller = { ws, name };
         joined = { role: "controller", deviceId: msg.deviceId };
 
-        // Cross-notify both peers.
         sendControl(entry.hostWs, { type: "peer-joined", role: "controller", name });
         sendControl(ws,           { type: "peer-joined", role: "host",       name: entry.deviceName });
         console.log(`[relay] controller "${name}" paired with "${entry.deviceName}"`);
@@ -141,11 +153,10 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    // Already paired — forward bytes to the peer.
     const entry = devices.get(joined.deviceId);
     if (!entry) return;
     const target = joined.role === "controller" ? entry.hostWs : entry.controller?.ws;
-    if (target && target.readyState === 1 /* OPEN */) {
+    if (target && target.readyState === 1) {
       target.send(raw, { binary: true });
     }
   });
@@ -156,7 +167,6 @@ wss.on("connection", (ws) => {
     if (!entry) return;
 
     if (joined.role === "host" && entry.hostWs === ws) {
-      // Host dropped — the whole device is offline. Notify controller and drop.
       if (entry.controller && entry.controller.ws.readyState === 1) {
         sendControl(entry.controller.ws, { type: "peer-left", role: "host" });
       }
@@ -174,6 +184,20 @@ wss.on("connection", (ws) => {
     }
   });
 });
+
+// Server-side keepalive — detect & reap half-dead clients.
+const pingInterval = setInterval(() => {
+  for (const rawWs of wss.clients) {
+    const ws = rawWs as AliveWs;
+    if (ws.isAlive === false) {
+      try { ws.terminate(); } catch { /* ignore */ }
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch { /* 'close' will handle it */ }
+  }
+}, PING_INTERVAL_MS);
+wss.on("close", () => clearInterval(pingInterval));
 
 httpServer.listen(PORT, () => {
   console.log(`[relay] listening on ws://localhost:${PORT}`);

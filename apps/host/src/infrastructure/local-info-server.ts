@@ -4,6 +4,9 @@ export interface LocalHostInfo {
   deviceId:   string;
   deviceName: string;
   pin:        string;
+  /** Relay the host agent is registered with — so the /host page can build
+   *  a share link that actually works from outside this machine. */
+  relayUrl:   string;
 }
 
 /**

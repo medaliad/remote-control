@@ -64,9 +64,24 @@ launchd plist / systemd unit afterwards.
 | `RELAY_URL` | Override if pointing to a central relay | `ws://localhost:${PORT}/relay` |
 | `NO_BROWSER` | Suppress the auto-open browser tab | unset |
 
-Identity persists in:
-- Windows: `%APPDATA%\remote-control\device.json`
-- macOS / Linux: `$XDG_CONFIG_HOME/remote-control/device.json` (fallback `~/.config/...`)
+Identity and settings persist in:
+- Windows: `%APPDATA%\remote-control\{device,config}.json`
+- macOS / Linux: `$XDG_CONFIG_HOME/remote-control/{device,config}.json` (fallback `~/.config/...`)
+
+`config.json` currently holds `{"relayUrl": "..."}`. Precedence the host
+agent applies at startup, highest first:
+
+1. `RELAY_URL` env var (one-shot override)
+2. `config.json` (persisted — set with `npm run host -- --relay <url>`)
+3. `ws://localhost:<PORT>/relay` (default, dev-only)
+
+So the canonical "point this machine at our company relay" command is:
+
+```bash
+npm run host -- --relay wss://relay.example.com/relay
+```
+
+Run that once; every restart afterwards re-reads the saved URL.
 
 ## What actually gets installed
 

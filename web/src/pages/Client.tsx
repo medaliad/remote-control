@@ -93,8 +93,9 @@ export function ClientPage({ prefillCode }: Props) {
     });
 
     sig.on("peer:ready", (msg) => {
-      // Create the RTCPeerConnection now. We're polite — we back off on
-      // negotiation collisions.
+      // Spin up the RTCPeerConnection via simple-peer. initiator=true
+      // (set inside Peer for role "client") means we open the data channel
+      // and fire the first SDP offer immediately.
       const peer = new Peer(sig, "client", {
         onRemoteStream: (stream) => {
           const v = videoRef.current;

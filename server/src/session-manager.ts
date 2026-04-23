@@ -153,10 +153,16 @@ export class SessionManager {
     clientName: string,
   ):
     | { ok: true; session: Session; requestId: string }
-    | { ok: false; reason: "invalid-code" } {
+    | { ok: false; reason: "invalid-code" | "session-full" } {
     const code = normalizeCode(rawCode);
     const session = this.byCode.get(code);
     if (!session) return { ok: false, reason: "invalid-code" };
+    // Spec: "one active connection per session". If a client is already
+    // paired, we refuse new joins up front rather than letting them sit in
+    // the pending queue until the host tries to approve. That way the
+    // second client gets a clean "session-full" error instead of a silent
+    // stall.
+    if (session.clientWs) return { ok: false, reason: "session-full" };
 
     const requestId = randomUUID();
     session.pending.set(requestId, {

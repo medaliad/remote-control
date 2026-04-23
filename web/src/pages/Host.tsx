@@ -25,7 +25,7 @@ type HostState =
   | { kind: "creating" }
   | { kind: "waiting"; code: string }
   | { kind: "request"; code: string; requestId: string; clientName: string }
-  | { kind: "connecting"; code: string }
+  | { kind: "connecting"; code: string; clientName: string }
   | { kind: "connected"; code: string; clientName: string }
   | { kind: "disconnected"; reason: string };
 
@@ -173,55 +173,73 @@ export function HostPage() {
     });
 
     sig.on("peer:ready", async () => {
-      // Approved — start capturing the screen and wire up the peer connection.
-      // Audio: true asks the browser for tab/system audio. Chromium will show
-      // a "Share audio" checkbox in the picker; on Firefox/Safari this option
-      // may be unavailable and the call silently returns video-only. We pass
-      // it anyway — best-effort is correct here.
+      // Approved — wire up the peer connection *before* we prompt the user
+      // for a screen. The client's Peer is created in its own peer:ready
+      // handler and immediately opens a DataChannel, which triggers
+      // negotiationneeded → sends an SDP offer. That offer is relayed to
+      // us via the server. If we were still sitting on the getDisplayMedia
+      // picker at that moment, peerRef.current would be null and the offer
+      // would be silently dropped — the connection would hang forever.
+      const peer = new Peer(sig, "host", {
+        onInput: handleRemoteInput,
+        onConnectionStateChange: (s) => {
+          // Only tear the session down on a hard failure. Transient
+          // "disconnected" usually recovers; the server's peer:left is the
+          // source of truth for the peer actually leaving.
+          if (s === "failed" || s === "closed") hardDisconnect("WebRTC session ended.");
+        },
+      });
+      peerRef.current = peer;
+
+      // Reflect our approval flag to the client as early as possible. We
+      // read from the ref so that a setAllowControl() call inside
+      // approveRequest() (which fires synchronously right before we get
+      // here) is already visible.
+      sig.send({ type: "host:setControl", allowed: allowControlRef.current });
+
+      // Audio: true asks the browser for tab/system audio. Chromium shows
+      // a "Share audio" checkbox in the picker; on Firefox/Safari this
+      // option may be unavailable and the call silently returns video-only.
+      // We pass it anyway — best-effort is correct here.
+      let stream: MediaStream;
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        streamRef.current = stream;
-
-        const peer = new Peer(sig, "host", {
-          onInput:        handleRemoteInput,
-          onConnectionStateChange: (s) => {
-            if (s === "failed" || s === "closed" || s === "disconnected") {
-              // Only tear the session down on a hard failure. Transient
-              // "disconnected" usually recovers on its own, so we give it a
-              // moment via the server's peer:left, which is the source of truth.
-              if (s === "failed" || s === "closed") hardDisconnect("WebRTC session ended.");
-            }
-          },
-        });
-        peerRef.current = peer;
-        peer.addScreenStream(stream);
-
-        // Attach the stream to our own preview so the host sees what's being
-        // shared — same experience as Google Meet etc.
-        if (videoRef.current) videoRef.current.srcObject = stream;
-
-        // If the user stops sharing via the browser's native "Stop sharing"
-        // button, we tear the session down cleanly.
-        stream.getVideoTracks()[0]?.addEventListener("ended", () => {
-          hardDisconnect("You stopped sharing your screen.");
-        });
-
-        // Reflect our approval flag to the client. We read from the ref so
-        // that a setAllowControl() call inside approveRequest() (which fires
-        // synchronously right before we get here) is already visible.
-        sig.send({ type: "host:setControl", allowed: allowControlRef.current });
-
-        setState((s) =>
-          s.kind === "request" || s.kind === "waiting"
-            ? { kind: "connected", code: s.kind === "request" ? s.code : s.code, clientName: s.kind === "request" ? s.clientName : "Client" }
-            : s,
-        );
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       } catch (err) {
         console.error("[host] getDisplayMedia:", err);
         // User dismissed the picker / permissions denied. Tell the client.
         sig.send({ type: "host:end" });
         hardDisconnect("Screen share was cancelled.");
+        return;
       }
+
+      streamRef.current = stream;
+      peer.addScreenStream(stream); // triggers renegotiation with the track(s)
+
+      // Attach the stream to our own preview so the host sees what's being
+      // shared — same experience as Google Meet etc.
+      if (videoRef.current) videoRef.current.srcObject = stream;
+
+      // If the user stops sharing via the browser's native "Stop sharing"
+      // button we tear the session down — but only if *this* stream is
+      // still the active one. Otherwise we'd clobber the disconnect reason
+      // set by whoever initiated the teardown (e.g. the user clicking End
+      // session, which stops the track too).
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (streamRef.current === stream) {
+          hardDisconnect("You stopped sharing your screen.");
+        }
+      });
+
+      setState((s) =>
+        s.kind === "request" || s.kind === "connecting" || s.kind === "waiting"
+          ? {
+              kind: "connected",
+              code: s.code,
+              clientName:
+                s.kind === "request" || s.kind === "connecting" ? s.clientName : "Client",
+            }
+          : s,
+      );
     });
 
     sig.on("signal", (msg) => { void peerRef.current?.handleRemoteSignal(msg.data); });
@@ -249,11 +267,16 @@ export function HostPage() {
     });
 
     sig.onceClosed().then((reason) => {
-      if (state.kind !== "disconnected") hardDisconnect(`Connection closed: ${reason}`);
+      // Only tear down if *this* signaling instance is still the active one.
+      // After a user-driven hardDisconnect() we've already nulled the ref and
+      // surfaced a better reason; don't clobber it.
+      if (signalingRef.current === sig) {
+        hardDisconnect(`Connection closed: ${reason}`);
+      }
     });
 
     sig.send({ type: "host:create", hostName });
-  }, [hostName, allowControl, hardDisconnect, state.kind]);
+  }, [hostName, hardDisconnect]);
 
   /* ── Handle remote (client) input events ────────────────────────────── */
   //
@@ -295,7 +318,7 @@ export function HostPage() {
     setAllowControl(true);
     ensureAgent();
     signalingRef.current?.send({ type: "host:approve", requestId: state.requestId });
-    setState({ kind: "connecting", code: state.code });
+    setState({ kind: "connecting", code: state.code, clientName: state.clientName });
   };
   const rejectRequest = (reason?: string) => {
     if (state.kind !== "request") return;

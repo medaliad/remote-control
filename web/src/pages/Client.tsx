@@ -72,14 +72,12 @@ export function ClientPage({ prefillCode }: Props) {
     }
 
     // After server validates the code, we transition to "waiting" — it's
-    // already told the host, and now we wait for approve/reject.
-    // There's no explicit "request:sent" ack; the absence of an `error`
-    // message means it worked, which we mark by transitioning on the
-    // first successful exchange. A conservative move: flip on the very
-    // next tick.
-    setTimeout(() => {
-      setState((s) => (s.kind === "requesting" ? { kind: "waiting", code: s.code } : s));
-    }, 50);
+    // already told the host, and now we wait for approve/reject. There's
+    // no explicit "request:sent" ack; the absence of an `error` message
+    // means it worked. We flip to "waiting" optimistically right after
+    // sending. If an error comes back, the error handler transitions us
+    // to "rejected" and the setState below becomes a no-op because state
+    // is no longer "requesting".
 
     sig.on("request:approved", () => {
       setState((s) => (s.kind === "waiting" || s.kind === "requesting"
@@ -144,6 +142,10 @@ export function ClientPage({ prefillCode }: Props) {
     });
 
     sig.send({ type: "client:join", code: trimmed, clientName });
+    // Synchronously promote to "waiting" now that the join is in flight.
+    // Error / approval handlers above will transition us again when the
+    // server responds.
+    setState((s) => (s.kind === "requesting" ? { kind: "waiting", code: s.code } : s));
   }, [code, clientName, hardDisconnect]);
 
   const cancel = () => {

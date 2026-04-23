@@ -146,6 +146,46 @@ export default function Page() {
     return () => { cancelled = true; };
   }, []);
 
+  // ── Auto-join via share link: /?d=<deviceId>&p=<pin> ───────────────────────
+  // Someone pasted the share link the host page generated — skip the picker,
+  // skip the PIN step, connect straight to the session. If the PIN is wrong,
+  // the relay rejects us and we fall back to the normal error UI.
+  const autoJoinedRef = useRef(false);
+  useEffect(() => {
+    if (autoJoinedRef.current) return;
+    if (typeof window === "undefined") return;
+    if (isBusy || selected) return;
+
+    const qs = new URLSearchParams(window.location.search);
+    const d  = qs.get("d");
+    const rawPin = qs.get("p");
+    if (!d || !rawPin) return;
+
+    // Normalize PIN: strip non-digits, re-insert the hyphen the relay expects.
+    const digits = rawPin.replace(/[^0-9]/g, "").slice(0, 6);
+    if (digits.length !== 6) return;
+    const normalizedPin = `${digits.slice(0, 3)}-${digits.slice(3)}`;
+
+    // Pick a device object for the UI. Prefer the real one from the relay's
+    // device list so the header shows its friendly name; otherwise use a
+    // synthetic placeholder so "connecting…" renders while we wait.
+    const realMatch = devices.find((dev) => dev.deviceId === d);
+    const placeholder: PublicDevice = realMatch ?? {
+      deviceId:   d,
+      deviceName: "Device",
+      status:     "available",
+    };
+
+    autoJoinedRef.current = true;
+    setSelected(placeholder);
+    setPin(normalizedPin);
+    connect({
+      deviceId:       d,
+      pin:            normalizedPin,
+      controllerName: defaultControllerName(),
+    });
+  }, [devices, isBusy, selected, connect]);
+
   // Focus the PIN input when we open the PIN step.
   useEffect(() => {
     if (selected) setTimeout(() => pinInputRef.current?.focus(), 50);
@@ -269,11 +309,10 @@ export default function Page() {
                 <span className={styles.emptyTitle}>No devices online</span>
                 <span className={styles.emptyHint}>
                   On the computer you want to control, run{" "}
-                  <code>npm run dev:host</code>. To connect from another
+                  <code>npm run host</code>. To connect from another
                   device, open this page at the host's LAN address (e.g.{" "}
-                  <code>http://192.168.x.x:3000</code>) and make sure ports{" "}
-                  <code>3000</code> and <code>4000</code> are allowed through
-                  its firewall.
+                  <code>http://192.168.x.x:3000</code>) and make sure port{" "}
+                  <code>3000</code> is allowed through its firewall.
                 </span>
               </div>
             )}

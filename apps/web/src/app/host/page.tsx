@@ -35,6 +35,18 @@ function pickerUrl(): string {
   return `${protocol}//${hostname}${port ? `:${port}` : ""}/`;
 }
 
+/**
+ * One-tap share URL that auto-pairs the controller to this host.
+ * The picker reads `?d=<deviceId>&p=<pin>` and calls connect() automatically.
+ * This is the "zero-click" CRD-style flow — paste in Slack/Teams/iMessage.
+ */
+function shareUrl(deviceId: string, pin: string): string {
+  const base = pickerUrl();
+  if (!base) return "";
+  const qs = new URLSearchParams({ d: deviceId, p: pin });
+  return `${base}?${qs.toString()}`;
+}
+
 interface LocalInfo {
   deviceId:   string;
   deviceName: string;
@@ -47,7 +59,7 @@ export default function HostPage() {
   const [info,       setInfo]       = useState<LocalInfo | null>(null);
   const [status,     setStatus]     = useState<"available" | "busy" | "offline">("offline");
   const [error,      setError]      = useState<string | null>(null);
-  const [copyDone,   setCopyDone]   = useState<"pin" | "url" | null>(null);
+  const [copyDone,   setCopyDone]   = useState<"pin" | "url" | "share" | null>(null);
 
   // Fetch the PIN from the *local* host agent (loopback only).
   const pollLocal = useCallback(async () => {
@@ -91,7 +103,7 @@ export default function HostPage() {
     return () => clearInterval(id);
   }, [info, pollRelay]);
 
-  const copy = useCallback((text: string, kind: "pin" | "url") => {
+  const copy = useCallback((text: string, kind: "pin" | "url" | "share") => {
     navigator.clipboard.writeText(text).catch(() => {});
     setCopyDone(kind);
     setTimeout(() => setCopyDone(null), 2000);
@@ -118,7 +130,7 @@ export default function HostPage() {
             <div className={styles.errorIcon}>⚠</div>
             <p className={styles.errorText}>{error}</p>
             <p className={styles.hint}>
-              Run <code>npm run dev:host</code> on the machine you want to
+              Run <code>npm run host</code> on the machine you want to
               control. Then reload this page.
             </p>
           </div>
@@ -154,7 +166,20 @@ export default function HostPage() {
               {copyDone === "pin" ? "✓ PIN copied" : "Copy PIN"}
             </button>
 
-            <div className={styles.urlLabel}>Open on the other device:</div>
+            <div className={styles.urlLabel}>One-tap share link (auto-pairs):</div>
+            <div className={styles.urlRow}>
+              <span className={styles.urlText} title={shareUrl(info.deviceId, info.pin)}>
+                {shareUrl(info.deviceId, info.pin)}
+              </span>
+              <button
+                className={`${styles.copyBtn} ${copyDone === "share" ? styles.copyDone : ""}`}
+                onClick={() => copy(shareUrl(info.deviceId, info.pin), "share")}
+              >
+                {copyDone === "share" ? "✓ Copied" : "Copy link"}
+              </button>
+            </div>
+
+            <div className={styles.urlLabel}>Or pair manually with the PIN:</div>
             <div className={styles.urlRow}>
               <span className={styles.urlText}>{pickerUrl()}</span>
               <button

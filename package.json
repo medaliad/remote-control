@@ -6,7 +6,11 @@
     "packages/*",
     "apps/*"
   ],
+  "bin": {
+    "rc-host": "./bin/rc-host.mjs"
+  },
   "scripts": {
+    "host": "node bin/rc-host.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:web": "npm --workspace apps/web run dev",
     "dev:host": "npm --workspace apps/host run dev",

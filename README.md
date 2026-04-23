@@ -53,9 +53,10 @@ web/           Vite + React + TypeScript front-end
     pages/Client.tsx    Client state machine
     lib/signaling.ts    Typed WebSocket wrapper
     lib/webrtc.ts       Peer w/ perfect negotiation
-agent/         Node.js local bridge (browser <-> VB6)
-  agent.js            WebSocket server on 127.0.0.1:8766,
-                      TCP client to VB6 on 127.0.0.1:8765
+agent/         Node.js local bridge (browser <-> OS mouse)
+  agent.js                  WebSocket server on 127.0.0.1:8766
+  start-agent.cmd           Windows launcher (ALLOWED_ORIGIN + npm start)
+  start-agent-hidden.vbs    Same but window-less, for the Startup folder
 vb6-agent/     VB6 program that injects mouse events into Windows
   MouseControl.vbp    VB6 project file
   MouseControl.frm    Winsock listener + command parser
@@ -96,12 +97,35 @@ The agent picks an injection backend automatically:
 
 - **Windows** — spawns a persistent PowerShell child that calls
   `user32.dll`'s `SetCursorPos` / `mouse_event` (same Win32 APIs the VB6
-  program uses). No extra install needed.
+  program uses). No extra install needed. The child is launched with
+  `-ExecutionPolicy Bypass` so `Add-Type` works even on locked-down
+  machines, and commands are queued until PowerShell prints `[ps] ready`
+  so nothing is dropped during the ~0.3 s warm-up.
 - **macOS** — spawns `osascript` running a small JXA helper that posts
   `CGEvent` mouse events. You'll be asked to grant *Accessibility*
   permission to Terminal/node the first time.
 - **Linux** — spawns `xdotool` (install via `sudo apt install xdotool` or
   your distro's equivalent).
+
+### Auto-start on Windows login
+
+You don't want to run `npm start` every time you sit down at the
+machine. The agent ships with a launcher you can drop in the Startup
+folder so it boots with your user session:
+
+1. Edit `agent/start-agent.cmd` and set `ALLOWED_ORIGIN` to your Render
+   URL (the file has a placeholder).
+2. Press `Win+R`, type `shell:startup`, and press Enter.
+3. Drag a **shortcut** to either `agent/start-agent.cmd` (visible
+   console window, good while you're still debugging) or
+   `agent/start-agent-hidden.vbs` (no window, logs to
+   `%TEMP%\remote-access-agent.log`) into that folder.
+
+Next login the agent is already running; opening the Host page from
+Render and flipping **Allow remote input** just works.
+
+> Browsers can't auto-launch local processes — that's a sandbox rule,
+> not a missing feature. Auto-start on login is the equivalent workflow.
 
 ### Optional: the VB6 backend
 

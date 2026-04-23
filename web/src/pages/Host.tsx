@@ -3,10 +3,14 @@ import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
 
 /**
- * Local agent (agent/agent.js) bridges this page to the VB6 mouse program.
- * We keep this coupling tight on purpose: the agent only accepts loopback
- * connections and the browser only talks to 127.0.0.1, so no rogue tab can
- * drive your mouse just because you left control toggled on.
+ * Local agent (agent/agent.js) is a small Node process running on the host
+ * machine. It injects mouse events using whatever's available per platform:
+ * on Windows a persistent PowerShell calling user32.dll (or, with BACKEND=vb6,
+ * MouseControl.exe); on macOS an osascript helper; on Linux xdotool.
+ *
+ * Coupling stays tight: the agent binds to 127.0.0.1 only, checks the browser's
+ * Origin header against ALLOWED_ORIGIN, and the browser only talks to loopback.
+ * No rogue tab can drive the mouse just because you left control toggled on.
  */
 const AGENT_WS_URL = "ws://127.0.0.1:8766";
 
@@ -32,12 +36,17 @@ export function HostPage() {
   const [incomingLog, setIncomingLog] = useState<string[]>([]);
 
   /**
-   * Agent status: "off" = we haven't tried, "connecting" = socket opening,
-   * "up" = WS open AND VB6 is attached, "no-vb6" = WS open but VB6 program
-   * isn't running yet, "down" = couldn't even reach the local agent.
+   * Agent status:
+   *   "off"         -- we haven't tried to connect yet
+   *   "connecting"  -- WebSocket is opening
+   *   "warming"     -- WS is up, but the backend (e.g. PowerShell on Windows,
+   *                    or the VB6 TCP link) is not ready to inject yet
+   *   "up"          -- WS open AND backend ready -- cursor will move
+   *   "down"        -- couldn't reach the local agent at all
    */
   const [agentStatus, setAgentStatus] =
-    useState<"off" | "connecting" | "up" | "no-vb6" | "down">("off");
+    useState<"off" | "connecting" | "warming" | "up" | "down">("off");
+  const [agentBackend, setAgentBackend] = useState<string>("");
 
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef      = useRef<Peer | null>(null);
@@ -77,7 +86,11 @@ export function HostPage() {
       return null;
     }
 
-    ws.onopen    = () => setAgentStatus((s) => (s === "up" ? s : "no-vb6"));
+    // Until the agent's first status message lands we're "warming" -- the
+    // WebSocket is up but we don't yet know if the backend (PowerShell / VB6)
+    // can actually inject events. The first `agent:status` upgrades us to
+    // "up" or keeps us "warming" accordingly.
+    ws.onopen    = () => setAgentStatus((s) => (s === "up" ? s : "warming"));
     ws.onerror   = () => setAgentStatus("down");
     ws.onclose   = () => {
       if (agentRef.current === ws) {
@@ -87,9 +100,17 @@ export function HostPage() {
     };
     ws.onmessage = (ev) => {
       try {
-        const msg = JSON.parse(ev.data as string) as { type: string; connected?: boolean };
-        if (msg.type === "agent:vb6") {
-          setAgentStatus(msg.connected ? "up" : "no-vb6");
+        const msg = JSON.parse(ev.data as string) as {
+          type: string;
+          backend?: string;
+          ready?: boolean;
+          // Legacy field, still present in old agent builds.
+          connected?: boolean;
+        };
+        if (msg.type === "agent:status" || msg.type === "agent:vb6") {
+          const isReady = msg.ready ?? msg.connected ?? false;
+          setAgentStatus(isReady ? "up" : "warming");
+          if (msg.backend) setAgentBackend(msg.backend);
         }
       } catch { /* non-JSON -- ignore */ }
     };
@@ -430,8 +451,9 @@ export function HostPage() {
               <div className="toggle-label">
                 <span className="name">Allow remote input</span>
                 <span className="hint">
-                  Forwards the client's mouse events to the local VB6 agent,
-                  which moves your real cursor via the Win32 API.
+                  Forwards the client's mouse events to the local agent, which
+                  moves your real cursor via the OS (PowerShell / xdotool /
+                  osascript / VB6 depending on platform).
                 </span>
               </div>
               <button
@@ -446,11 +468,21 @@ export function HostPage() {
               <div className="side-card">
                 <h3>Local mouse agent</h3>
                 <p className="muted" style={{ fontSize: 13 }}>
-                  {agentStatus === "up"      && <><strong>Connected.</strong> Mouse events are being injected into Windows via VB6.</>}
-                  {agentStatus === "no-vb6"  && <><strong>Agent running, VB6 not attached.</strong> Start <code>MouseControl.exe</code> (compiled from <code>vb6-agent/MouseControl.vbp</code>) and it should attach within a second.</>}
-                  {agentStatus === "connecting" && <>Connecting to the local agent…</>}
-                  {agentStatus === "down"    && <><strong>Can't reach the local agent.</strong> Run <code>npm start</code> inside the <code>agent/</code> folder.</>}
-                  {agentStatus === "off"     && <>Toggling on will try to connect to <code>ws://127.0.0.1:8766</code>.</>}
+                  {agentStatus === "up" && <>
+                    <strong>Ready.</strong> Mouse events are being injected
+                    {agentBackend ? <> via <code>{agentBackend}</code></> : null}.
+                  </>}
+                  {agentStatus === "warming" && <>
+                    <strong>Agent connected, backend warming up.</strong>
+                    {agentBackend === "vb6"
+                      ? <> Start <code>MouseControl.exe</code> (compiled from <code>vb6-agent/MouseControl.vbp</code>) — it should attach within a second.</>
+                      : <> PowerShell is loading the Win32 wrapper — usually less than a second. Moves queued during this time will flush as soon as it's ready.</>}
+                  </>}
+                  {agentStatus === "connecting" && <>Connecting to the local agent at <code>ws://127.0.0.1:8766</code>…</>}
+                  {agentStatus === "down" && <>
+                    <strong>Can't reach the local agent.</strong> Run <code>npm start</code> inside the <code>agent/</code> folder on the host machine (or drop the auto-start shortcut in <code>shell:startup</code>).
+                  </>}
+                  {agentStatus === "off" && <>Toggling on will try to connect to <code>ws://127.0.0.1:8766</code>.</>}
                 </p>
               </div>
             )}

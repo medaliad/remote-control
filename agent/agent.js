@@ -82,7 +82,16 @@ function createNativeBackend() {
 }
 
 function createWindowsBackend() {
-  // Preload the Win32 functions into a persistent PowerShell host.
+  // Preload the Win32 functions into a persistent PowerShell host. The
+  // `Add-Type` call compiles a tiny C# wrapper on first use (~200-600 ms on
+  // a cold machine); until that finishes, any command we pipe in would fail
+  // with "Move is not recognized". So we queue writes until the PS process
+  // prints "[ps] ready" on stdout, and only then flush the queue.
+  //
+  // We also pass `-ExecutionPolicy Bypass` because the default Restricted /
+  // AllSigned policy on some Windows installs refuses `Add-Type` inline
+  // scripts -- the child would exit silently and the mouse would just
+  // never move.
   const init = `
 $ErrorActionPreference='Continue'
 Add-Type -Name U -Namespace W -MemberDefinition @"
@@ -99,12 +108,40 @@ function Scroll($d) { [W.U]::mouse_event(2048,0,0,$d,0) }
 Write-Host "[ps] ready"
 `;
   const ps = spawn("powershell.exe",
-    ["-NoProfile", "-NoLogo", "-NonInteractive", "-Command", "-"],
+    ["-NoProfile", "-NoLogo", "-NonInteractive",
+     "-ExecutionPolicy", "Bypass", "-Command", "-"],
     { stdio: ["pipe", "pipe", "pipe"] });
   ps.stdin.write(init + "\n");
-  ps.stdout.on("data", (d) => VERBOSE && process.stdout.write(`[ps-out] ${d}`));
+
+  let ready = false;
+  const queue = [];
+  const writePs = (s) => {
+    if (ready) {
+      try { ps.stdin.write(s); } catch { /* ignore */ }
+    } else {
+      queue.push(s);
+    }
+  };
+
+  let stdoutBuf = "";
+  ps.stdout.on("data", (d) => {
+    const chunk = String(d);
+    if (VERBOSE) process.stdout.write(`[ps-out] ${chunk}`);
+    stdoutBuf += chunk;
+    if (!ready && stdoutBuf.includes("[ps] ready")) {
+      ready = true;
+      console.log("[agent] PowerShell backend ready");
+      // Flush anything that was queued during warm-up.
+      while (queue.length) {
+        try { ps.stdin.write(queue.shift()); } catch { /* ignore */ }
+      }
+    }
+  });
   ps.stderr.on("data", (d) => console.warn(`[ps-err] ${String(d).trim()}`));
-  ps.on("exit", (code) => console.warn(`[agent] PowerShell exited (code=${code})`));
+  ps.on("exit", (code) => {
+    ready = false;
+    console.warn(`[agent] PowerShell exited (code=${code})`);
+  });
 
   // MOUSEEVENTF_* bits: LDOWN=2 LUP=4 RDOWN=8 RUP=16 MDOWN=32 MUP=64
   const DOWN = { 0: 2,  1: 32, 2: 8  };
@@ -112,19 +149,20 @@ Write-Host "[ps] ready"
 
   return {
     label: "native:windows",
+    get ready() { return ready; },
     send: (line) => {
       const [verb, a, b] = line.split(" ");
       if (verb === "MOVE") {
-        ps.stdin.write(`Move ${a} ${b}\n`);
+        writePs(`Move ${a} ${b}\n`);
       } else if (verb === "DOWN") {
-        ps.stdin.write(`Btn ${DOWN[+a] ?? 2}\n`);
+        writePs(`Btn ${DOWN[+a] ?? 2}\n`);
       } else if (verb === "UP") {
-        ps.stdin.write(`Btn ${UP[+a] ?? 4}\n`);
+        writePs(`Btn ${UP[+a] ?? 4}\n`);
       } else if (verb === "CLICK") {
-        ps.stdin.write(`Btn ${DOWN[+a] ?? 2}\nBtn ${UP[+a] ?? 4}\n`);
+        writePs(`Btn ${DOWN[+a] ?? 2}\nBtn ${UP[+a] ?? 4}\n`);
       } else if (verb === "SCROLL") {
         // Flip: WheelEvent.deltaY positive = scroll down; Win expects +up.
-        ps.stdin.write(`Scroll ${-Math.round(Number(a) || 0)}\n`);
+        writePs(`Scroll ${-Math.round(Number(a) || 0)}\n`);
       }
     },
     close: () => { try { ps.kill(); } catch { /* ignore */ } },
@@ -323,9 +361,18 @@ function broadcast(obj) {
 
 wss.on("connection", (ws, req) => {
   console.log(`[agent] browser connected (origin=${req.headers.origin || "-"})`);
-  // Tell the UI we're alive. "connected: true" just means "agent can inject";
-  // for the native backend that's always true. For VB6 it tracks the TCP link.
-  const reportStatus = () => ws.send(JSON.stringify({ type: "agent:vb6", connected: backend.ready ?? true }));
+  // Tell the UI our status. `ready` means "the backend can actually inject
+  // events right now" -- for VB6 that's the TCP link; for native Windows it
+  // flips true after PowerShell finishes Add-Type; for xdotool/osascript it's
+  // treated as always-ready (the helper starts instantly).
+  const reportStatus = () => {
+    const msg = {
+      type: "agent:status",
+      backend: backend.label,
+      ready: backend.ready ?? true,
+    };
+    try { ws.send(JSON.stringify(msg)); } catch { /* ignore */ }
+  };
   reportStatus();
   const statusTimer = setInterval(reportStatus, 2000);
 

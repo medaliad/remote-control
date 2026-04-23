@@ -33,6 +33,9 @@ export function ClientPage({ prefillCode }: Props) {
   const [state, setState] = useState<ClientState>({ kind: "idle" });
   const [code, setCode] = useState(prefillCode?.toUpperCase() ?? "");
   const [clientName, setClientName] = useState("Client");
+  // The client <video> starts muted so browsers let us autoplay with an
+  // audio track in the stream. The user can unmute after the first click.
+  const [muted, setMuted] = useState(true);
 
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef      = useRef<Peer | null>(null);
@@ -94,7 +97,15 @@ export function ClientPage({ prefillCode }: Props) {
       // negotiation collisions.
       const peer = new Peer(sig, "client", {
         onRemoteStream: (stream) => {
-          if (videoRef.current) videoRef.current.srcObject = stream;
+          const v = videoRef.current;
+          if (!v) return;
+          v.srcObject = stream;
+          // Autoplay policies in Chrome/Edge/Firefox/Safari block playback
+          // when the stream has audio and the element isn't muted. We
+          // start muted (so the picture shows immediately) and let the
+          // user toggle sound on via the "Unmute" button; that click
+          // counts as a user gesture, so play() then works with audio.
+          v.play().catch((err) => console.warn("[client] video.play():", err));
         },
         onConnectionStateChange: (s) => {
           if (s === "failed" || s === "closed") hardDisconnect("WebRTC session ended.");
@@ -154,6 +165,19 @@ export function ClientPage({ prefillCode }: Props) {
   };
 
   const disconnect = () => hardDisconnect("You disconnected.");
+
+  /** Toggle audio on the incoming stream. Called from a user click, so
+   *  browsers will honor the unmute (autoplay policies only block the
+   *  *first* unprompted playback with audio). */
+  const toggleMuted = () => {
+    const next = !muted;
+    setMuted(next);
+    const v = videoRef.current;
+    if (v) {
+      v.muted = next;
+      if (!next) v.play().catch((err) => console.warn("[client] unmute play():", err));
+    }
+  };
 
   /* ── Input forwarding (only when allowed) ───────────────────────────── */
   //
@@ -359,6 +383,13 @@ export function ClientPage({ prefillCode }: Props) {
           </span>
         )}
         <div style={{ flex: 1 }} />
+        <button
+          className="btn secondary"
+          onClick={toggleMuted}
+          title={muted ? "Unmute shared audio" : "Mute shared audio"}
+        >
+          {muted ? "Unmute" : "Mute"}
+        </button>
         <button className="btn danger" onClick={disconnect}>Disconnect</button>
       </div>
 
@@ -369,6 +400,10 @@ export function ClientPage({ prefillCode }: Props) {
               ref={videoRef}
               autoPlay
               playsInline
+              // `muted` is required for autoplay when the stream carries
+              // audio (Chrome/Edge/Firefox/Safari autoplay policy). The
+              // Unmute button above toggles it off after a user gesture.
+              muted={muted}
               // tabIndex lets the video accept focus for scroll/key events.
               tabIndex={0}
             />

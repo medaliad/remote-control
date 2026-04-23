@@ -25,7 +25,7 @@ services:
     rootDir: .
     buildCommand: npm install --include=dev && npm --workspace apps/web run build
     startCommand: node combined-server.mjs
-    healthCheckPath: /devices
+    healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: "20"

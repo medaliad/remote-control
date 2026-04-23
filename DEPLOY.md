@@ -23,6 +23,57 @@ demand — and have the install-and-forget feel of Chrome Remote Desktop.
   (Render, Fly, on-prem) and set `RELAY_URL` on each host to
   `wss://relay.example.com/relay`. A Tailscale / Cloudflare Tunnel works too.
 
+## Render deployment (step-by-step)
+
+The repo ships a `render.yaml` blueprint that deploys the combined server
+(Next.js UI + WebSocket relay + `/devices` API) as a **single web service**.
+**Important:** the host agent is *never* deployed to Render — it runs on
+whatever local machine you want to control.
+
+1. **Deploy the relay to Render**
+
+   Push the repo to GitHub, then on Render click *New → Blueprint* and point
+   at the repo. Render picks up `render.yaml`, builds with
+
+   ```
+   npm install --include=dev && npm --workspace apps/web run build
+   ```
+
+   and starts with `node combined-server.mjs`. Use the **Starter plan or
+   higher** — the Free plan sleeps on idle and drops long-lived WebSockets.
+
+2. **Grab the public URL** Render hands you, e.g.
+   `https://remote-control-xyz.onrender.com`. This is both the controller UI
+   *and* the relay. Open it in a browser: you should see the device picker
+   with "No devices online" (expected — no host has registered yet) and a
+   working `/health` endpoint.
+
+3. **Install the host agent on the machine you want to control**, and point
+   it at your Render URL:
+
+   ```bash
+   # one-time — persists to config.json so restarts pick it up
+   npm run host -- --relay wss://remote-control-xyz.onrender.com/relay
+   ```
+
+   You can also grab this exact command by opening
+   `https://remote-control-xyz.onrender.com/host` — it detects the remote
+   origin and prints a copy-paste installer line.
+
+4. **Open `https://remote-control-xyz.onrender.com/` on any device** (phone,
+   tablet, other laptop), pick the host, type the PIN shown in the host
+   terminal. Done.
+
+### Troubleshooting Render deploys
+
+| Symptom | Likely cause |
+|---|---|
+| Picker shows "Mixed content: this page is HTTPS but the relay URL is not" | Custom relay URL saved in Settings is `ws://` or `http://`. Reset to default. |
+| Picker shows "Cannot reach relay at https://…" | The Render service isn't running / not yet deployed. Check `/health`. |
+| `/host` page shows "Relay is online" but host agent never appears in the picker | The host agent isn't running locally, or its `--relay` doesn't match the Render URL. Check the agent's terminal for `connect failed`. |
+| Connections drop after ~100s of idle | Using the **Free** plan. Upgrade to Starter — Free reaps idle HTTP upgrades. |
+| `503` during deploy | Render is still building; `/health` returns 200 once `combined-server.mjs` is listening. |
+
 ## One-line install
 
 ### Windows (PowerShell, no admin)

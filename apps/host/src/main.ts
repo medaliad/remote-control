@@ -17,16 +17,20 @@ import type { HostRegistration } from "@/domain/ports";
 // Precedence, highest wins:
 //   1. RELAY_URL env var           (one-off: `RELAY_URL=… npm run host`)
 //   2. config.json persisted value (set via `rc-host --relay …` or by hand)
-//   3. built-in default            (ws://localhost:4000, dev-only)
+//   3. built-in default            (ws://localhost:<WEB_PORT>/relay, dev-only)
 
 const persisted    = loadHostConfig();
-const RELAY_URL    = process.env.RELAY_URL ?? persisted.relayUrl ?? "ws://localhost:4000";
+const WEB_PORT     = process.env.WEB_PORT   ?? "3000";
+const LOCAL_PORT   = Number(process.env.LOCAL_PORT ?? 4001);
+// Match combined-server.mjs — it listens on $PORT (default 3000) at path
+// /relay. The previous fallback (ws://localhost:4000) matched nothing and
+// produced a silent ECONNREFUSED loop on first run before a --relay was set.
+const DEFAULT_RELAY = `ws://localhost:${WEB_PORT}/relay`;
+const RELAY_URL    = process.env.RELAY_URL ?? persisted.relayUrl ?? DEFAULT_RELAY;
 const RELAY_SOURCE =
   process.env.RELAY_URL  ? "env"
   : persisted.relayUrl   ? "config.json"
   :                        "default (localhost)";
-const WEB_PORT     = process.env.WEB_PORT   ?? "3000";
-const LOCAL_PORT   = Number(process.env.LOCAL_PORT ?? 4001);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

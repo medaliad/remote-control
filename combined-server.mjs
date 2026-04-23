@@ -55,12 +55,26 @@ function parseControl(data) {
 
 // ─── HTTP server ─────────────────────────────────────────────────────────────
 
+const BOOT_TIME = Date.now();
+
 const httpServer = createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204).end();
+    return;
+  }
+
+  // Cheap liveness / readiness endpoint. Render's `healthCheckPath` can point
+  // at either this or /devices — this one has zero work, so it's preferred.
+  if (req.url === "/health" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" })
+       .end(JSON.stringify({
+         ok:        true,
+         uptimeSec: Math.round((Date.now() - BOOT_TIME) / 1000),
+         devices:   devices.size,
+       }));
     return;
   }
 
@@ -74,8 +88,11 @@ const httpServer = createServer(async (req, res) => {
         status:     d.controller ? "busy" : "available",
       });
     }
-    res.writeHead(200, { "Content-Type": "application/json" })
-       .end(JSON.stringify({ devices: list }));
+    res.writeHead(200, {
+      "Content-Type":  "application/json",
+      // Don't let a CDN (Cloudflare/Render) cache a stale device list.
+      "Cache-Control": "no-store",
+    }).end(JSON.stringify({ devices: list }));
     return;
   }
 
@@ -86,6 +103,25 @@ const httpServer = createServer(async (req, res) => {
     if (!res.headersSent) res.writeHead(500).end("Internal error");
   }
 });
+
+// Render / Fly ship SIGTERM before a restart; without an explicit handler the
+// process dies abruptly and in-flight WebSockets don't get a close frame,
+// which shows up to controllers as "failed" instead of "reconnecting".
+function gracefulShutdown(signal) {
+  console.log(`[combined] received ${signal} — closing ${wss.clients.size} sockets`);
+  for (const ws of wss.clients) {
+    try { ws.close(1012, "server restart"); } catch { /* ignore */ }
+  }
+  httpServer.close(() => process.exit(0));
+  // Hard cap so a stuck handle can't block a restart.
+  setTimeout(() => process.exit(0), 5_000).unref();
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
+
+// Don't let a single bad frame take the whole relay down on Render.
+process.on("uncaughtException",  (err) => console.error("[combined] uncaughtException:",  err));
+process.on("unhandledRejection", (err) => console.error("[combined] unhandledRejection:", err));
 
 // ─── WebSocket server ────────────────────────────────────────────────────────
 
@@ -107,7 +143,10 @@ httpServer.on("upgrade", (req, socket, head) => {
 // keep stale entries in `devices`. Pattern: tag each ws with .isAlive, reset
 // it on every pong, and terminate any ws that didn't pong in the last tick.
 
-const PING_INTERVAL_MS = 30_000;
+// 25s stays comfortably under the ~110s idle window Render / Cloudflare apply
+// to upgraded connections, so the relay re-primes the socket before the edge
+// reaper has a chance to kill it.
+const PING_INTERVAL_MS = 25_000;
 
 wss.on("connection", (ws) => {
   ws.isAlive = true;
@@ -227,5 +266,12 @@ wss.on("close", () => clearInterval(pingInterval));
 // ─── Listen ──────────────────────────────────────────────────────────────────
 
 httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`[combined] listening on :${PORT} (Next.js + relay on /relay)`);
+  const renderHost = process.env.RENDER_EXTERNAL_HOSTNAME; // injected on Render
+  const publicBase = renderHost ? `https://${renderHost}` : `http://localhost:${PORT}`;
+  const relayBase  = renderHost ? `wss://${renderHost}`   : `ws://localhost:${PORT}`;
+  console.log(`[combined] listening on :${PORT}`);
+  console.log(`[combined]  ↳ picker UI   ${publicBase}/`);
+  console.log(`[combined]  ↳ host page   ${publicBase}/host`);
+  console.log(`[combined]  ↳ relay ws    ${relayBase}/relay`);
+  console.log(`[combined]  ↳ health      ${publicBase}/health`);
 });

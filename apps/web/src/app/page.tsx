@@ -9,22 +9,37 @@ import styles from "./page.module.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const RELAY_STORAGE_KEY = "rc:relayUrl";
+
 function defaultRelay(): string {
   // 1. Build-time override (set in Render / Vercel dashboard).
   const envUrl = process.env.NEXT_PUBLIC_RELAY_URL;
   if (envUrl) return envUrl;
 
-  if (typeof window === "undefined") return "ws://localhost:4000";
-  const { protocol, hostname } = window.location;
-  // 2. Same-origin proxy (if you terminate TLS in front of both web + relay).
-  return protocol === "https:"
-    ? `wss://${window.location.host}/relay`
-    : `ws://${hostname}:4000`;
+  if (typeof window === "undefined") return "ws://localhost:3000/relay";
+
+  // 2. User-saved override (persisted via the settings panel).
+  try {
+    const saved = window.localStorage?.getItem(RELAY_STORAGE_KEY);
+    if (saved) return saved;
+  } catch { /* storage blocked — fall through */ }
+
+  // 3. Same-origin — works for both the Render deploy (wss on the one port
+  //    the combined server listens on) and for `npm run host` locally.
+  const { protocol, host } = window.location;
+  const wsProto = protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProto}//${host}/relay`;
 }
 
 function relayHttpUrl(ws: string): string {
   return ws.replace(/^wss?:\/\//, (m) => (m === "wss://" ? "https://" : "http://"))
            .replace(/\/relay$/, "");
+}
+
+/** True when we're on an HTTPS page — used to warn about Mixed Content
+ *  (e.g. user typed a `ws://` relay URL into the settings on a Render tab). */
+function isHttpsPage(): boolean {
+  return typeof window !== "undefined" && window.location.protocol === "https:";
 }
 
 function isMicContextSecure(): boolean {
@@ -81,10 +96,22 @@ const DOT_CLASS: Record<ConnectionState, string> = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Page() {
-  const [relayUrl, setRelayUrl] = useState(() => {
+  const [relayUrl, setRelayUrlState] = useState(() => {
     if (typeof window === "undefined") return defaultRelay();
     return new URLSearchParams(window.location.search).get("r") ?? defaultRelay();
   });
+
+  // Persist edits to the Relay URL so a reload doesn't wipe the user's setting.
+  const setRelayUrl = useCallback((url: string) => {
+    setRelayUrlState(url);
+    try {
+      if (url && url !== defaultRelay()) {
+        window.localStorage?.setItem(RELAY_STORAGE_KEY, url);
+      } else {
+        window.localStorage?.removeItem(RELAY_STORAGE_KEY);
+      }
+    } catch { /* private mode — ignore */ }
+  }, []);
 
   const [showSettings, setShowSettings] = useState(false);
 
@@ -104,15 +131,30 @@ export default function Page() {
   const pinInputRef = useRef<HTMLInputElement>(null);
 
   // ── Poll /devices every 2 s while on the picker ─────────────────────────────
+  // We distinguish 3 states:
+  //   - success: devices list refreshed
+  //   - "mixed"  : page is https, relay is ws/http → browser silently blocks us
+  //   - other    : network / CORS / relay-down
   const pollDevices = useCallback(async () => {
+    // Cheap pre-flight — catches the classic "deployed to Render but pasted a
+    // ws://localhost URL in settings" mistake before the browser hides it.
+    if (isHttpsPage() && /^(ws|http):\/\//i.test(relayUrl)) {
+      setDevicesError(
+        "Mixed content: this page is HTTPS but the relay URL is not. Use wss://…/relay."
+      );
+      setFirstLoad(false);
+      return;
+    }
     try {
-      const res = await fetch(`${relayHttpUrl(relayUrl)}/devices`);
+      const res = await fetch(`${relayHttpUrl(relayUrl)}/devices`, { cache: "no-store" });
       if (!res.ok) throw new Error(`relay ${res.status}`);
       const data = await res.json() as { devices: PublicDevice[] };
       setDevices(data.devices);
       setDevicesError(null);
     } catch {
-      setDevicesError("Cannot reach relay server.");
+      setDevicesError(
+        `Cannot reach relay at ${relayHttpUrl(relayUrl)}. Check the URL in Settings.`
+      );
     } finally {
       setFirstLoad(false);
     }
@@ -262,10 +304,37 @@ export default function Page() {
                       className={styles.settingsInput}
                       value={relayUrl}
                       onChange={(e) => setRelayUrl(e.target.value)}
-                      placeholder="wss://your-relay.example.com"
+                      placeholder="wss://your-relay.example.com/relay"
                       spellCheck={false}
                       autoFocus
                     />
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "var(--muted, #9ca3af)",
+                        marginTop: 6,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Saved to this browser. On an HTTPS page this must be{" "}
+                      <code>wss://…</code>. Default:{" "}
+                      <code>{defaultRelay()}</code>.
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.settingsInput}
+                      style={{
+                        marginTop: 8,
+                        cursor: "pointer",
+                        textAlign: "center",
+                      }}
+                      onClick={() => {
+                        try { window.localStorage?.removeItem(RELAY_STORAGE_KEY); } catch {}
+                        setRelayUrlState(defaultRelay());
+                      }}
+                    >
+                      Reset to default
+                    </button>
                   </div>
                 </div>
               </>
@@ -300,6 +369,20 @@ export default function Page() {
                   Check that the relay is running at{" "}
                   <code>{relayUrl}</code>.
                 </span>
+                <button
+                  type="button"
+                  className={styles.btnIcon}
+                  style={{
+                    width: "auto",
+                    padding: "6px 14px",
+                    marginTop: 10,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                  onClick={() => { setFirstLoad(true); void pollDevices(); }}
+                >
+                  Retry
+                </button>
               </div>
             )}
 

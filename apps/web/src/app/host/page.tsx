@@ -37,6 +37,42 @@ function localInfoUrl(): string {
   return `http://localhost:${port}/info`;
 }
 
+/**
+ * True when the page is being opened on the host computer itself. On a
+ * remote (Render) origin, fetching http://localhost:4001/info is (a) Mixed
+ * Content — browsers block it silently on https — and (b) pointless, because
+ * the host agent runs on the user's machine, not in the Render container. In
+ * that case we render a "how to install the agent" panel instead of the
+ * inevitable "host app is not running" error.
+ */
+function isLocalOrigin(): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return (
+    h === "localhost" ||
+    h === "127.0.0.1" ||
+    h === "::1" ||
+    h.endsWith(".local") ||
+    /^192\.168\./.test(h) ||
+    /^10\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(h)
+  );
+}
+
+/** The public origin visitors should use — i.e. this page's own origin. */
+function currentPublicBase(): string {
+  if (typeof window === "undefined") return "";
+  return `${window.location.protocol}//${window.location.host}`;
+}
+
+/** The corresponding wss://…/relay URL for the host agent to register with. */
+function currentPublicRelay(): string {
+  if (typeof window === "undefined") return "";
+  const { protocol, host } = window.location;
+  const wsProto = protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProto}//${host}/relay`;
+}
+
 /** URL to open on another device to land on the picker. */
 function pickerUrl(relayUrl: string | undefined): string {
   const base = publicBase(relayUrl);
@@ -70,7 +106,11 @@ export default function HostPage() {
   const [info,       setInfo]       = useState<LocalInfo | null>(null);
   const [status,     setStatus]     = useState<"available" | "busy" | "offline">("offline");
   const [error,      setError]      = useState<string | null>(null);
-  const [copyDone,   setCopyDone]   = useState<"pin" | "url" | "share" | null>(null);
+  const [copyDone,   setCopyDone]   = useState<"pin" | "url" | "share" | "relay" | "install" | null>(null);
+  // `null` until we've mounted in the browser, so the first paint matches SSR
+  // (which can't know the hostname).
+  const [remoteOrigin, setRemoteOrigin] = useState<boolean | null>(null);
+  useEffect(() => { setRemoteOrigin(!isLocalOrigin()); }, []);
 
   // Fetch the PIN from the *local* host agent (loopback only).
   const pollLocal = useCallback(async () => {
@@ -102,10 +142,14 @@ export default function HostPage() {
   }, []);
 
   useEffect(() => {
+    // Don't poll the loopback info server from a remote (Render) page — the
+    // request is always a Mixed Content error under https and wastes the
+    // polling interval. We render the deploy-guide branch instead.
+    if (remoteOrigin !== false) return;
     void pollLocal();
     const id = setInterval(pollLocal, 2000);
     return () => clearInterval(id);
-  }, [pollLocal]);
+  }, [pollLocal, remoteOrigin]);
 
   useEffect(() => {
     if (!info) return;
@@ -136,7 +180,75 @@ export default function HostPage() {
       </header>
 
       <main className={styles.main}>
-        {error && !info && (
+        {/* ── REMOTE ORIGIN (Render deploy, public URL) ─────────────────── */}
+        {/* This page is open on the deployed relay, not on the host computer
+            itself. The host agent runs on the user's *local* machine, so
+            render an install guide instead of a perpetual "offline" card.   */}
+        {remoteOrigin && (
+          <div className={styles.card}>
+            <div
+              className={`${styles.statusBadge} ${styles.statusWaiting}`}
+              style={{ marginBottom: 8 }}
+            >
+              <span className={styles.statusDot} />
+              Relay is online
+            </div>
+            <div className={styles.deviceNameLabel}>This is your public relay</div>
+            <div
+              className={styles.deviceName}
+              style={{ fontSize: 18, wordBreak: "break-all" }}
+            >
+              {currentPublicBase()}
+            </div>
+
+            <p className={styles.hint} style={{ textAlign: "left", margin: "8px 0 0" }}>
+              To make a computer controllable from here, install the{" "}
+              <strong>host agent</strong> on that machine and point it at this
+              relay. The agent then shows up in the device picker on{" "}
+              <a className={styles.pickerFooterLink ?? ""} href="/" style={{ color: "var(--accent)" }}>
+                the home page
+              </a>.
+            </p>
+
+            <div className={styles.urlLabel} style={{ marginTop: 18 }}>
+              1. One-time setup command (run on the computer to control):
+            </div>
+            <div className={styles.urlRow}>
+              <span className={styles.urlText}>
+                {`npm run host -- --relay ${currentPublicRelay()}`}
+              </span>
+              <button
+                className={`${styles.copyBtn} ${copyDone === "install" ? styles.copyDone : ""}`}
+                onClick={() =>
+                  copy(`npm run host -- --relay ${currentPublicRelay()}`, "install")
+                }
+              >
+                {copyDone === "install" ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+
+            <div className={styles.urlLabel}>2. Or just the relay URL (for env / config):</div>
+            <div className={styles.urlRow}>
+              <span className={styles.urlText}>{currentPublicRelay()}</span>
+              <button
+                className={`${styles.copyBtn} ${copyDone === "relay" ? styles.copyDone : ""}`}
+                onClick={() => copy(currentPublicRelay(), "relay")}
+              >
+                {copyDone === "relay" ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+
+            <p className={styles.hint} style={{ textAlign: "left" }}>
+              After the agent starts, its one-time PIN is shown in the terminal
+              and on <code>http://localhost:3000/host</code> on that same
+              machine. Controllers connect by opening{" "}
+              <strong>{currentPublicBase()}</strong> on any other device and
+              entering the PIN.
+            </p>
+          </div>
+        )}
+
+        {remoteOrigin === false && error && !info && (
           <div className={styles.card}>
             <div className={styles.errorIcon}>⚠</div>
             <p className={styles.errorText}>{error}</p>
@@ -147,7 +259,7 @@ export default function HostPage() {
           </div>
         )}
 
-        {info && (
+        {remoteOrigin === false && info && (
           <div className={styles.card}>
 
             <div

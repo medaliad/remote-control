@@ -158,11 +158,14 @@ export default function HostPage() {
     return () => clearInterval(id);
   }, [info, pollRelay]);
 
-  const copy = useCallback((text: string, kind: "pin" | "url" | "share") => {
-    navigator.clipboard.writeText(text).catch(() => {});
-    setCopyDone(kind);
-    setTimeout(() => setCopyDone(null), 2000);
-  }, []);
+  const copy = useCallback(
+    (text: string, kind: "pin" | "url" | "share" | "relay" | "install") => {
+      navigator.clipboard.writeText(text).catch(() => {});
+      setCopyDone(kind);
+      setTimeout(() => setCopyDone(null), 2000);
+    },
+    [],
+  );
 
   const statusLabel =
     status === "busy"      ? "Controller connected"

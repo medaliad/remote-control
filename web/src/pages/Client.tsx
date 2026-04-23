@@ -196,18 +196,60 @@ export function ClientPage({ prefillCode }: Props) {
 
     const send = (ev: InputEvent) => peerRef.current?.sendInput(ev);
 
+    // Throttle mousemove to one event per frame. Browsers fire mousemove
+    // ~120 times per second; forwarding them all floods the data channel
+    // for no perceptible benefit.
+    let lastMove: { x: number; y: number } | null = null;
+    let moveScheduled = false;
+    const flushMove = () => {
+      moveScheduled = false;
+      if (!lastMove) return;
+      send({ t: "mouse", x: lastMove.x, y: lastMove.y, kind: "move" });
+      lastMove = null;
+    };
+
     const localCoords = (e: MouseEvent) => {
       const rect = v.getBoundingClientRect();
-      // Normalize to the displayed video area. Host can multiply by remote
-      // resolution — we don't know it here.
-      const x = ((e.clientX - rect.left) / rect.width);
-      const y = ((e.clientY - rect.top)  / rect.height);
+      // The <video> element uses object-fit: contain by default, so the
+      // actual picture is letterboxed/pillarboxed inside the element when
+      // the stream's aspect ratio doesn't match the element's. Normalizing
+      // against getBoundingClientRect would put a click in the black bar
+      // onto the host's screen edge. Compute the real drawn area from the
+      // stream's intrinsic size and map coords against THAT.
+      const vW = v.videoWidth;
+      const vH = v.videoHeight;
+      if (!vW || !vH) {
+        // Stream hasn't reported a size yet — fall back to the element box.
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top)  / rect.height;
+        return { x, y };
+      }
+      const videoAspect = vW / vH;
+      const rectAspect  = rect.width / rect.height;
+      let drawW: number, drawH: number, offX: number, offY: number;
+      if (videoAspect > rectAspect) {
+        // Stream is wider — letterboxed top/bottom.
+        drawW = rect.width;
+        drawH = rect.width / videoAspect;
+        offX  = 0;
+        offY  = (rect.height - drawH) / 2;
+      } else {
+        // Stream is taller — pillarboxed left/right.
+        drawH = rect.height;
+        drawW = rect.height * videoAspect;
+        offY  = 0;
+        offX  = (rect.width - drawW) / 2;
+      }
+      const x = (e.clientX - rect.left - offX) / drawW;
+      const y = (e.clientY - rect.top  - offY) / drawH;
       return { x, y };
     };
 
     const onMouseMove = (e: MouseEvent) => {
-      const { x, y } = localCoords(e);
-      send({ t: "mouse", x, y, kind: "move" });
+      lastMove = localCoords(e);
+      if (moveScheduled) return;
+      moveScheduled = true;
+      requestAnimationFrame(flushMove);
     };
     const onMouseDown = (e: MouseEvent) => {
       const { x, y } = localCoords(e);
@@ -217,10 +259,12 @@ export function ClientPage({ prefillCode }: Props) {
       const { x, y } = localCoords(e);
       send({ t: "mouse", x, y, button: e.button, kind: "up" });
     };
-    const onClick = (e: MouseEvent) => {
-      const { x, y } = localCoords(e);
-      send({ t: "mouse", x, y, button: e.button, kind: "click" });
-    };
+    // NOTE: deliberately no `click` handler. Browsers fire mousedown +
+    // mouseup + click for a single physical click; forwarding all three
+    // made the agent do press + release + press + release on the host,
+    // which registered as a double-click. down + up is enough — the host
+    // OS synthesizes clicks from those on its own, exactly like a real
+    // USB mouse plugged in locally.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       send({ t: "wheel", dx: e.deltaX, dy: e.deltaY });
@@ -245,22 +289,31 @@ export function ClientPage({ prefillCode }: Props) {
       send({ t: "key", key: e.key, code: e.code, kind: "up" });
     };
 
-    v.addEventListener("mousemove", onMouseMove);
-    v.addEventListener("mousedown", onMouseDown);
-    v.addEventListener("mouseup",   onMouseUp);
-    v.addEventListener("click",     onClick);
-    v.addEventListener("wheel",     onWheel, { passive: false });
+    // The browser's default click behavior on <video> is to focus the
+    // element (good) but also sometimes to toggle playback controls.
+    // Swallow click so we don't accidentally pause the remote stream.
+    const swallowClick = (e: MouseEvent) => e.preventDefault();
+    // Block the native context menu — right-click should go to the host.
+    const swallowCtx   = (e: Event) => e.preventDefault();
+
+    v.addEventListener("mousemove",   onMouseMove);
+    v.addEventListener("mousedown",   onMouseDown);
+    v.addEventListener("mouseup",     onMouseUp);
+    v.addEventListener("click",       swallowClick);
+    v.addEventListener("contextmenu", swallowCtx);
+    v.addEventListener("wheel",       onWheel, { passive: false });
     // Keyboard has to live on window; video can't receive key events
     // without `tabIndex` and focus, and even then it's flaky across browsers.
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
 
     return () => {
-      v.removeEventListener("mousemove", onMouseMove);
-      v.removeEventListener("mousedown", onMouseDown);
-      v.removeEventListener("mouseup",   onMouseUp);
-      v.removeEventListener("click",     onClick);
-      v.removeEventListener("wheel",     onWheel);
+      v.removeEventListener("mousemove",   onMouseMove);
+      v.removeEventListener("mousedown",   onMouseDown);
+      v.removeEventListener("mouseup",     onMouseUp);
+      v.removeEventListener("click",       swallowClick);
+      v.removeEventListener("contextmenu", swallowCtx);
+      v.removeEventListener("wheel",       onWheel);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
     };

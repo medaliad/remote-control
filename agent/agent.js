@@ -431,15 +431,32 @@ console.log(`[agent] backend: ${backend.label}`);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
 
+// Last emitted cursor position — used to skip redundant MOVEs. The browser
+// fires mousemove at ~120Hz even while the mouse is physically still (when
+// the cursor re-enters a different subregion etc.), and every move spawns
+// a PowerShell call on the Win32 backend. De-dup and the backend stays
+// responsive.
+let lastMoveX = -1;
+let lastMoveY = -1;
+
 function translate(ev) {
   if (!ev || typeof ev !== "object") return [];
   if (ev.t === "mouse") {
     const x = clamp01(ev.x), y = clamp01(ev.y);
     const btn = Number.isInteger(ev.button) ? ev.button : 0;
-    const out = [`MOVE ${x.toFixed(4)} ${y.toFixed(4)}`];
-    if (ev.kind === "down")  out.push(`DOWN ${btn}`);
-    if (ev.kind === "up")    out.push(`UP ${btn}`);
-    if (ev.kind === "click") out.push(`CLICK ${btn}`);
+    const out = [];
+    // Skip the MOVE if the cursor hasn't actually moved since last time.
+    // 4-decimal precision ~= 1 pixel on a 10k-wide screen, which is plenty.
+    if (x !== lastMoveX || y !== lastMoveY) {
+      out.push(`MOVE ${x.toFixed(4)} ${y.toFixed(4)}`);
+      lastMoveX = x; lastMoveY = y;
+    }
+    if (ev.kind === "down") out.push(`DOWN ${btn}`);
+    if (ev.kind === "up")   out.push(`UP ${btn}`);
+    // NOTE: intentionally no handler for "click". The browser fires
+    // mousedown + mouseup + click for each physical click — honoring all
+    // three made the host double-click every time. down + up alone is
+    // enough: the host OS synthesizes its own click from the pair.
     return out;
   }
   if (ev.t === "wheel") {

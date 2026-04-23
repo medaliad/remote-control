@@ -52,6 +52,10 @@ export function HostPage() {
   const peerRef      = useRef<Peer | null>(null);
   const streamRef    = useRef<MediaStream | null>(null);
   const agentRef     = useRef<WebSocket | null>(null);
+  // Latches to true the first time we drop an input event because the
+  // agent WS isn't open, so the console warning fires once rather than
+  // once per event. Reset whenever the agent reconnects.
+  const agentDropWarnedRef = useRef<boolean>(false);
   // Mirror of allowControl so async callbacks that were created before the
   // state flipped still see the up-to-date value (React closures capture the
   // value at creation time; a ref sidesteps that).
@@ -94,7 +98,10 @@ export function HostPage() {
     // WebSocket is up but we don't yet know if the backend (PowerShell / VB6)
     // can actually inject events. The first `agent:status` upgrades us to
     // "up" or keeps us "warming" accordingly.
-    ws.onopen    = () => setAgentStatus((s) => (s === "up" ? s : "warming"));
+    ws.onopen    = () => {
+      agentDropWarnedRef.current = false;
+      setAgentStatus((s) => (s === "up" ? s : "warming"));
+    };
     ws.onerror   = () => setAgentStatus("down");
     ws.onclose   = () => {
       if (agentRef.current === ws) {
@@ -294,6 +301,16 @@ export function HostPage() {
       const ws = agentRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify(ev)); } catch { /* agent will reconnect */ }
+      } else {
+        // Log once per state change so the console is not spammed but the
+        // operator can still see *why* nothing is happening on their screen.
+        if (!agentDropWarnedRef.current) {
+          agentDropWarnedRef.current = true;
+          console.warn(
+            "[host] input received but local agent is not connected — " +
+            "events are being dropped. Run `npm start` in agent/ on this machine.",
+          );
+        }
       }
     }
 

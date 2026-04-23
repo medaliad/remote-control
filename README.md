@@ -63,70 +63,120 @@ vb6-agent/     VB6 program that injects mouse events into Windows
 render.yaml    One-service Render Blueprint
 ```
 
-## Remote mouse control (VB6 pipeline)
+## Remote mouse control
 
-By itself, the browser sandbox can't move your OS cursor. To actually drive
-the host's mouse, we add two local processes — inspired by the React ↔ Node
-↔ VB6 approach in [this write-up][vb6-article]:
+The browser sandbox can't move your OS cursor, so we add one small local
+process — the agent in `agent/` — that runs on whichever machine is doing
+the screen-sharing. Nothing about mouse control lives on Render; Render
+is just the signaling/static host.
 
 ```
- client browser           host browser            local agent          VB6
- ───────────────   WebRTC ──────────────  WebSocket ───────────  TCP  ───────
- mouse events ──▶  Host.tsx         ──▶  agent/agent.js    ──▶  MouseControl
-                   (receives over              (127.0.0.1:8766)      (127.0.0.1:8765)
-                    data channel)                                    │
-                                                                     ▼
-                                                          user32.dll: SetCursorPos,
-                                                                      mouse_event
+ client browser        host browser         local agent              OS mouse
+ ───────────────  WebRTC ──────────── ws  ──────────────  spawn   ─────────────
+ mouse events ──▶ Host.tsx       ──▶ agent/agent.js  ──▶ PowerShell (Windows)
+                                       (127.0.0.1:8766)      xdotool    (Linux)
+                                                             osascript  (macOS)
 ```
+
+Inspiration for the React ↔ Node ↔ VB6 three-tier pattern comes from
+[this write-up][vb6-article]; the classic VB6 variant still ships here as
+an optional backend.
 
 [vb6-article]: https://medium.com/@sahasourav630/building-a-real-time-mouse-control-system-with-react-node-js-and-vb6-9ea67f36096f
 
 ### On the host machine, one-time setup
 
-1. **Compile the VB6 program.** Open `vb6-agent/MouseControl.vbp` in Visual
-   Basic 6 (requires `MSWINSCK.OCX`, which ships with VB6). Hit
-   *File → Make MouseControl.exe*. Launch the resulting `.exe` — it binds
-   to `127.0.0.1:8765` and shows a tiny log window.
-2. **Install and start the agent:**
+```bash
+cd agent
+npm install
+npm start
+```
+
+The agent picks an injection backend automatically:
+
+- **Windows** — spawns a persistent PowerShell child that calls
+  `user32.dll`'s `SetCursorPos` / `mouse_event` (same Win32 APIs the VB6
+  program uses). No extra install needed.
+- **macOS** — spawns `osascript` running a small JXA helper that posts
+  `CGEvent` mouse events. You'll be asked to grant *Accessibility*
+  permission to Terminal/node the first time.
+- **Linux** — spawns `xdotool` (install via `sudo apt install xdotool` or
+  your distro's equivalent).
+
+### Optional: the VB6 backend
+
+If you'd rather use the original VB6 program as the injector:
+
+1. Compile it: open `vb6-agent/MouseControl.vbp` in Visual Basic 6
+   (requires `MSWINSCK.OCX`, which ships with VB6). *File → Make
+   MouseControl.exe*. Launch the `.exe` — it binds to `127.0.0.1:8765`
+   and shows a tiny log window.
+2. Start the agent in VB6-forwarding mode:
    ```bash
-   cd agent
-   npm install
-   npm start
+   BACKEND=vb6 npm start
    ```
-   The agent logs `[agent] connected to VB6 at 127.0.0.1:8765` when the two
-   are talking. It auto-reconnects if you restart either side.
+
+The agent then becomes a thin pipe: browser → WebSocket → TCP → VB6 →
+Win32. You get the GUI log window and a process you can kill with one
+click; the trade-off is an extra hop and the need to compile VB6.
 
 ### On the host's browser
 
-Open the Host page as usual, approve the client, then toggle **Allow remote
-input**. The sidebar shows a live status card:
+Open the Host page (served from Render or localhost), approve the
+client, then toggle **Allow remote input**. The sidebar shows live
+status.
 
-- *Connected.* — agent + VB6 both reachable, cursor is being driven.
-- *Agent running, VB6 not attached.* — start `MouseControl.exe`.
-- *Can't reach the local agent.* — run `npm start` in `agent/`.
+### Running on Render
 
-### Wire protocol (agent → VB6)
+Render only runs the signaling server + static web app — the agent
+stays on the host's computer. When the Host page served from Render
+opens a WebSocket to the local agent, the browser is doing a mixed
+`https → ws://127.0.0.1` call, which all major browsers permit because
+loopback is treated as a potentially-trustworthy origin.
 
-Newline-delimited ASCII over TCP. All coordinates are normalized 0..1.
+Before `npm start` on the host, lock the agent to your Render URL so
+only pages from there can drive your mouse:
+
+```bash
+# Windows (PowerShell)
+$env:ALLOWED_ORIGIN = "https://your-service.onrender.com"; npm start
+# macOS / Linux
+ALLOWED_ORIGIN=https://your-service.onrender.com npm start
+```
+
+With `ALLOWED_ORIGIN` set, the agent rejects WebSocket upgrades whose
+`Origin` header doesn't match — so even a malicious tab open on the same
+machine can't drive the cursor unless it came from your Render app.
+
+### Wire protocol (browser → agent)
+
+JSON events over WebSocket; the agent translates each into a
+newline-delimited command for the chosen backend (PowerShell / xdotool /
+osascript / VB6-TCP). All coordinates are normalized 0..1.
 
 ```
-MOVE 0.4125 0.8832
-DOWN 0                # 0=left, 1=middle, 2=right
-UP 0
-CLICK 2               # right-click at current cursor pos
-SCROLL -120           # positive = scroll up (Windows convention)
-PING
+{ "t": "mouse", "kind": "move",  "x": 0.4125, "y": 0.8832 }
+{ "t": "mouse", "kind": "down",  "x": 0.5,    "y": 0.5,   "button": 0 }
+{ "t": "mouse", "kind": "click", "x": 0.5,    "y": 0.5,   "button": 2 }
+{ "t": "wheel", "dy": -120 }
 ```
-
-The VB6 side replies `OK\n`, `PONG\n`, or `ERR <reason>\n` per command.
 
 ### Safety
 
-Both the VB6 listener and the Node agent bind to `127.0.0.1` only — nothing
-off-box can drive your mouse. The browser host only forwards input when
-**Allow remote input** is on, and the `host:setControl` signal is echoed to
-the client so they can see it flip on/off in real time.
+- The agent binds to `127.0.0.1` only — nothing off-box can reach it.
+- `ALLOWED_ORIGIN` locks the WebSocket upgrade to a specific page.
+- The browser host only forwards input when **Allow remote input** is
+  on; the `host:setControl` signal is echoed to the client so they can
+  see it flip on/off in real time.
+- The VB6 backend, if used, also binds loopback-only.
+
+### Env vars
+
+| Var | Default | Purpose |
+| --- | ------- | ------- |
+| `BACKEND` | `native` | `native` = direct OS injection; `vb6` = TCP-forward to `MouseControl.exe` |
+| `ALLOWED_ORIGIN` | (empty → loopback pages only) | Browser Origin whitelist for the agent's WebSocket |
+| `VERBOSE` | unset | Set to `1` to log each command the backend sends |
 
 ## Local development
 

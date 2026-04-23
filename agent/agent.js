@@ -350,15 +350,6 @@ const wss = new WebSocketServer({
   },
 });
 
-function broadcast(obj) {
-  const payload = JSON.stringify(obj);
-  for (const ws of wss.clients) {
-    if (ws.readyState === ws.OPEN) {
-      try { ws.send(payload); } catch { /* ignore */ }
-    }
-  }
-}
-
 wss.on("connection", (ws, req) => {
   console.log(`[agent] browser connected (origin=${req.headers.origin || "-"})`);
   // Tell the UI our status. `ready` means "the backend can actually inject

@@ -1,27 +1,19 @@
 {
-  "name": "remote-control",
-  "version": "0.1.0",
+  "name": "remote-access",
+  "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "server",
+    "web"
   ],
-  "bin": {
-    "rc-host": "./bin/rc-host.mjs"
-  },
   "scripts": {
-    "host": "node bin/rc-host.mjs",
-    "dev": "node scripts/dev.mjs",
-    "dev:web": "npm --workspace apps/web run dev",
-    "dev:host": "npm --workspace apps/host run dev",
-    "dev:relay": "npm --workspace apps/signaling run dev",
-    "build": "npm --workspaces run build --if-present",
-    "build:combined": "npm --workspace apps/web run build",
-    "start": "node combined-server.mjs",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build && npm --workspace server run build",
+    "start": "node server/dist/index.js",
     "typecheck": "npm --workspaces run typecheck --if-present"
   },
-  "devDependencies": {
-    "typescript": "^5.6.3",
-    "@types/node": "^22.9.0"
+  "engines": {
+    "node": ">=20"
   }
 }

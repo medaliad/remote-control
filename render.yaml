@@ -1,31 +1,32 @@
-# Render Blueprint — single service deploy.
+# Render Blueprint — one Node service hosting everything.
 #
-# ONE service hosts:
-#   - the Next.js controller UI (served on /, /host, etc.)
-#   - the WebSocket relay      (served on /relay)
-#   - the /devices HTTP API    (relay device list)
+# This single web service:
+#   - Serves the built React app (web/dist) on `/`
+#   - Serves the signaling WebSocket on `/ws`
+#   - Serves a JSON `/health` endpoint for Render's health probe
 #
-# Entry point: combined-server.mjs (at repo root). That file boots Next.js
-# in production mode and attaches the relay to the same HTTP server so both
-# share one port ($PORT, injected by Render).
-#
-# The host agent is NOT deployed — it runs on whatever local machine you want
-# to control. It dials wss://<this-service>.onrender.com/relay.
+# Why one service instead of two:
+#   Keeping frontend and backend on the same origin sidesteps CORS *and*
+#   Mixed Content — the browser loads the page over HTTPS and opens the
+#   WebSocket over WSS on the same host, which browsers treat as secure
+#   by default.
 #
 # Use the Starter plan (not Free). Free sleeps after idle and drops the
-# long-lived WebSockets the relay depends on.
+# long-lived WebSockets the signaling layer depends on.
 
 services:
   - type: web
-    name: remote-control
+    name: remote-access
     runtime: node
     plan: starter
     region: frankfurt
     branch: main
     rootDir: .
-    buildCommand: npm install --include=dev && npm --workspace apps/web run build
-    startCommand: node combined-server.mjs
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: "20"
+      - key: NODE_ENV
+        value: production

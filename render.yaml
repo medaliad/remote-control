@@ -1,19 +1,18 @@
-# Render Blueprint — one Node service hosting the web UI + relay.
+# Render Blueprint — one Node service hosting everything.
 #
-# This single web service runs `combined-server.mjs`, which:
-#   - Serves the built Next.js app (apps/web/.next) on `/`, `/host`, etc.
-#   - Serves the WebSocket relay on `/relay` (binary framed protocol)
-#   - Exposes `/health` for Render's health probe
-#   - Exposes `/devices` (JSON) so the picker UI can list online hosts
+# This single web service:
+#   - Serves the built React app (web/dist) on `/`
+#   - Serves the signaling WebSocket on `/ws`
+#   - Serves a JSON `/health` endpoint for Render's health probe
 #
-# The host agent is NOT deployed here — it runs on your local machine
-# (nut-js needs a real display to inject input into, so it cannot run in a
-# headless cloud container). Point the local agent at this service with:
-#
-#   npm run host -- --relay wss://<your-service>.onrender.com/relay
+# Why one service instead of two:
+#   Keeping frontend and backend on the same origin sidesteps CORS *and*
+#   Mixed Content — the browser loads the page over HTTPS and opens the
+#   WebSocket over WSS on the same host, which browsers treat as secure
+#   by default.
 #
 # Use the Starter plan (not Free). Free sleeps after idle and drops the
-# long-lived WebSockets the relay depends on.
+# long-lived WebSockets the signaling layer depends on.
 
 services:
   - type: web
@@ -24,7 +23,7 @@ services:
     branch: main
     rootDir: .
     buildCommand: npm install --include=dev && npm run build
-    startCommand: node combined-server.mjs
+    startCommand: node server/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION

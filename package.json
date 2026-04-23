@@ -3,16 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "server",
+    "web"
   ],
   "scripts": {
-    "host": "node bin/rc-host.mjs",
-    "dev": "node bin/rc-host.mjs",
-    "dev:split": "node scripts/dev.mjs",
-    "build": "npm --workspace apps/web run build",
-    "build:combined": "npm --workspace apps/web run build",
-    "start": "node combined-server.mjs",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build && npm --workspace server run build",
+    "start": "node server/dist/index.js",
     "typecheck": "npm --workspaces run typecheck --if-present"
   },
   "engines": {

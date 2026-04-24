@@ -635,7 +635,7 @@ export function ClientPage({ prefillCode }: Props) {
                 tabIndex={0}
                 className="w-full h-full object-contain block focus:outline-none focus:ring-2 focus:ring-accent/50"
               />
-              <div className="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
+              <div className="pointer-events-none absolute top-3 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
                 <span className="relative flex w-1.5 h-1.5">
                   <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
                   <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400" />

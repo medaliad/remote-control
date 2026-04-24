@@ -1,6 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
+import {
+  MonitorPlay,
+  Copy,
+  Link as LinkIcon,
+  Check,
+  X,
+  PowerOff,
+  AlertTriangle,
+  Loader2,
+  Shield,
+  Activity,
+  Cpu,
+  ShieldCheck,
+  CircleDot,
+  KeyRound,
+} from "lucide-react";
 
 /**
  * Local agent (agent/agent.js) is a small Node process running on the host
@@ -433,43 +449,79 @@ export function HostPage() {
   // Idle — the "Create session" form.
   if (state.kind === "idle" || state.kind === "disconnected") {
     return (
-      <div className="card">
-        <h1>Share your screen</h1>
-        <p className="lede">
-          Create a session and we'll give you a short code to share. Every
-          connection request will require your explicit approval.
-        </p>
+      <div className="w-full max-w-lg animate-slide-up">
+        <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-8 sm:p-10">
+          <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
 
-        {state.kind === "disconnected" && (
-          <div className="alert warn">
-            <strong>Session ended.</strong> {state.reason}
+          <div className="relative">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-accent/25 to-accent/5 border border-accent/30 text-accent-hi mb-5">
+              <MonitorPlay className="w-6 h-6" strokeWidth={2.2} />
+            </div>
+
+            <h1 className="text-3xl font-bold tracking-tight mb-2">
+              Share your screen
+            </h1>
+            <p className="text-muted leading-relaxed mb-7">
+              Create a session and we'll give you a short code to share. Every
+              connection request will require your explicit approval.
+            </p>
+
+            {state.kind === "disconnected" && (
+              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100 animate-fade-in">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" strokeWidth={2.2} />
+                <p className="text-sm leading-relaxed">
+                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 mb-7">
+              <label
+                htmlFor="hostName"
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted"
+              >
+                Your display name (optional)
+              </label>
+              <input
+                id="hostName"
+                className="w-full px-4 py-3.5 rounded-xl bg-surface-2/80 border border-white/[0.08] text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15"
+                value={hostName}
+                onChange={(e) => setHostName(e.target.value)}
+                maxLength={40}
+              />
+            </div>
+
+            <button
+              className="group w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white shadow-glow transition-all duration-200 hover:shadow-glow-lg hover:-translate-y-[1px] active:translate-y-0 focus:outline-none focus:ring-4 focus:ring-accent/30 relative overflow-hidden"
+              onClick={createSession}
+            >
+              <span className="absolute inset-0 bg-gradient-to-r from-accent via-accent-hi to-accent bg-[length:200%_100%] animate-gradient-shift" />
+              <span className="relative inline-flex items-center gap-2">
+                <MonitorPlay className="w-4 h-4" strokeWidth={2.4} />
+                Create session
+              </span>
+            </button>
           </div>
-        )}
-
-        <div className="field">
-          <label htmlFor="hostName">Your display name (optional)</label>
-          <input
-            id="hostName"
-            className="input"
-            value={hostName}
-            onChange={(e) => setHostName(e.target.value)}
-            maxLength={40}
-          />
         </div>
-
-        <button className="btn primary block" onClick={createSession}>
-          Create session
-        </button>
       </div>
     );
   }
 
   if (state.kind === "creating") {
     return (
-      <div className="card">
-        <span className="pill" data-kind="waiting"><span className="dot" /> Creating…</span>
-        <h1 style={{ marginTop: 18 }}>Setting up your session</h1>
-        <p className="lede">Connecting to the signaling server.</p>
+      <div className="w-full max-w-lg animate-slide-up">
+        <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-8 sm:p-10">
+          <StatusPill kind="waiting" label="Creating…" />
+          <h1 className="mt-5 text-3xl font-bold tracking-tight">Setting up your session</h1>
+          <p className="mt-2 text-muted leading-relaxed">Connecting to the signaling server.</p>
+
+          {/* Loading skeleton */}
+          <div className="mt-8 space-y-3">
+            <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-2/3 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -487,167 +539,314 @@ export function HostPage() {
     : `Connected to ${state.clientName}`;
 
   return (
-    <div className="card wide">
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <span className="pill" data-kind={statusKind}><span className="dot" /> {statusLabel}</span>
-        <div style={{ flex: 1 }} />
-        <button className="btn danger" onClick={endSession}>End session</button>
-      </div>
+    <div className="w-full max-w-6xl animate-slide-up">
+      <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8">
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <StatusPill kind={statusKind} label={statusLabel} />
+          <div className="flex-1 min-w-[1rem]" />
+          <button
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+            onClick={endSession}
+          >
+            <PowerOff className="w-4 h-4" strokeWidth={2.4} />
+            End session
+          </button>
+        </div>
 
-      {state.kind === "waiting" && (
-        <>
-          <h1>Waiting for a request</h1>
-          <p className="lede">Share this code with the person who wants to view your screen.</p>
+        {state.kind === "waiting" && (
+          <div className="animate-fade-in">
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Waiting for a request</h1>
+            <p className="text-muted leading-relaxed mb-6">
+              Share this code with the person who wants to view your screen.
+            </p>
 
-          <div className="code-display">
-            <span className="label">Session code</span>
-            <span className="code">{code}</span>
-            <div style={{ display: "flex", gap: 14 }}>
-              <button className="copy" onClick={() => copyCode(code)}>Copy code</button>
-              <button className="copy" onClick={() => copyShareLink(code)}>Copy share link</button>
-            </div>
-          </div>
-
-          <div className="alert info">
-            When they enter the code, you'll see their request here and can
-            approve or reject it. <strong>Nothing is shared until you approve.</strong>
-          </div>
-        </>
-      )}
-
-      {state.kind === "request" && (
-        <>
-          <h1>Incoming connection request</h1>
-          <p className="lede">
-            <strong>{state.clientName}</strong> is asking to view your screen on
-            session <code>{state.code}</code>. You can approve or reject.
-          </p>
-
-          <div className="request-card">
-            <div className="title">{state.clientName}</div>
-            <div className="meta">
-              Approving will prompt you to pick a screen or window to share —
-              you can cancel at that step too.
-            </div>
-            <div className="btn-row">
-              <button className="btn success" onClick={approveRequest}>Approve &amp; share</button>
-              <button className="btn danger"  onClick={() => rejectRequest("rejected by host")}>Reject</button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {state.kind === "connecting" && (
-        <>
-          <h1>Connecting…</h1>
-          <p className="lede">Please pick the screen or window you want to share.</p>
-        </>
-      )}
-
-      {state.kind === "connected" && (
-        <div className="session-view">
-          <div>
-            {/* Big, unmissable banner when remote input is enabled but the
-                agent isn't up. Without this, the operator sees their own
-                preview playing fine and has no idea why the client's clicks
-                aren't landing. */}
-            {allowControl && agentStatus !== "up" && (
-              <div
-                className="alert"
-                style={{
-                  background: agentStatus === "down" ? "#5a1a1a" : "#4a3a1a",
-                  border: `1px solid ${agentStatus === "down" ? "#d94848" : "#d9a14a"}`,
-                  color: "#fff",
-                  padding: "12px 14px",
-                  borderRadius: 8,
-                  marginBottom: 12,
-                }}
-              >
-                <strong>
-                  {agentStatus === "down" && "Remote cursor will not move — local agent is offline."}
-                  {agentStatus === "warming" && "Starting local agent… your cursor will respond in a moment."}
-                  {agentStatus === "connecting" && "Connecting to local agent…"}
-                  {agentStatus === "off" && "Local agent not started."}
-                </strong>
-                {agentStatus === "down" && (
-                  <div style={{ marginTop: 6, fontSize: 13 }}>
-                    Open a terminal in the <code>agent/</code> folder and run <code>npm start</code>,
-                    or double-click <code>start-host.bat</code> from the project root.
-                    When the agent boots correctly you should see a tiny cursor
-                    jiggle on this screen.
-                  </div>
-                )}
+            <div className="relative overflow-hidden flex flex-col items-center gap-5 py-10 px-6 my-2 rounded-2xl border border-dashed border-accent/30 bg-gradient-to-b from-accent/[0.08] to-transparent">
+              <div className="absolute inset-0 bg-dots opacity-40 pointer-events-none" />
+              <span className="relative inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-hi">
+                <KeyRound className="w-3.5 h-3.5" strokeWidth={2.4} />
+                Session code
+              </span>
+              <span className="relative font-mono font-bold text-5xl sm:text-6xl tracking-[0.3em] text-gradient drop-shadow-[0_0_30px_rgba(124,106,255,0.35)]">
+                {code}
+              </span>
+              <div className="relative flex flex-wrap items-center justify-center gap-3">
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-accent-hi bg-accent/10 border border-accent/25 transition-all duration-200 hover:bg-accent/20 hover:border-accent/40"
+                  onClick={() => copyCode(code)}
+                >
+                  <Copy className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  Copy code
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-accent-hi bg-accent/10 border border-accent/25 transition-all duration-200 hover:bg-accent/20 hover:border-accent/40"
+                  onClick={() => copyShareLink(code)}
+                >
+                  <LinkIcon className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  Copy share link
+                </button>
               </div>
-            )}
-            <div className="video-frame">
-              <video ref={videoRef} autoPlay muted playsInline />
             </div>
-            <p className="muted" style={{ marginTop: 10, fontSize: 13 }}>
-              This is the preview of what <strong>{state.clientName}</strong> is
-              seeing. You can stop at any time by clicking "End session" above
-              or using your browser's native "Stop sharing" control.
+
+            <div className="mt-6 flex items-start gap-3 p-4 rounded-xl border border-accent/20 bg-accent/[0.06]">
+              <Shield className="shrink-0 mt-0.5 w-5 h-5 text-accent-hi" strokeWidth={2.2} />
+              <p className="text-sm text-[#d9d3ff]/90 leading-relaxed">
+                When they enter the code, you'll see their request here and can
+                approve or reject it.{" "}
+                <strong className="text-white">Nothing is shared until you approve.</strong>
+              </p>
+            </div>
+          </div>
+        )}
+
+        {state.kind === "request" && (
+          <div className="animate-fade-in">
+            <h1 className="text-3xl font-bold tracking-tight mb-2">
+              Incoming connection request
+            </h1>
+            <p className="text-muted leading-relaxed mb-6">
+              <strong className="text-text">{state.clientName}</strong> is asking
+              to view your screen on session{" "}
+              <code className="font-mono text-accent-hi">{state.code}</code>.
+              You can approve or reject.
+            </p>
+
+            <div className="relative overflow-hidden rounded-2xl border border-accent/60 bg-gradient-to-br from-accent/20 via-accent/10 to-transparent p-6 animate-scale-in shadow-glow">
+              <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-accent/30 blur-3xl pointer-events-none" />
+              <div className="relative flex items-center gap-4 mb-3">
+                <span className="relative inline-flex shrink-0 items-center justify-center w-12 h-12 rounded-xl bg-accent/20 border border-accent/40 text-accent-hi">
+                  <CircleDot className="w-5 h-5 animate-pulse-fast" strokeWidth={2.4} />
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-lg font-semibold tracking-tight">
+                    {state.clientName}
+                  </span>
+                  <span className="text-xs text-muted font-mono">
+                    requesting access · session {state.code}
+                  </span>
+                </div>
+              </div>
+              <div className="relative text-sm text-muted leading-relaxed mb-5">
+                Approving will prompt you to pick a screen or window to share —
+                you can cancel at that step too.
+              </div>
+              <div className="relative flex flex-wrap gap-3">
+                <button
+                  className="group inline-flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-white shadow-[0_0_30px_-6px_rgba(60,208,133,0.5)] transition-all duration-200 hover:-translate-y-[1px] focus:outline-none focus:ring-4 focus:ring-emerald-500/30 relative overflow-hidden"
+                  onClick={approveRequest}
+                >
+                  <span className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-emerald-400" />
+                  <span className="relative inline-flex items-center gap-2">
+                    <Check className="w-4 h-4" strokeWidth={2.8} />
+                    Approve &amp; share
+                  </span>
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+                  onClick={() => rejectRequest("rejected by host")}
+                >
+                  <X className="w-4 h-4" strokeWidth={2.6} />
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {state.kind === "connecting" && (
+          <div className="animate-fade-in">
+            <h1 className="text-3xl font-bold tracking-tight mb-2 flex items-center gap-3">
+              <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
+              Connecting…
+            </h1>
+            <p className="text-muted leading-relaxed">
+              Please pick the screen or window you want to share.
             </p>
           </div>
+        )}
 
-          <aside className="side-panel">
-            <div className="side-card">
-              <h3>Session</h3>
-              <p><code>{code}</code></p>
-            </div>
+        {state.kind === "connected" && (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 w-full animate-fade-in">
+            <div>
+              {/* Big, unmissable banner when remote input is enabled but the
+                  agent isn't up. Without this, the operator sees their own
+                  preview playing fine and has no idea why the client's clicks
+                  aren't landing. */}
+              {allowControl && agentStatus !== "up" && (
+                <div
+                  className={[
+                    "flex items-start gap-3 p-4 rounded-xl mb-4 border animate-slide-up",
+                    agentStatus === "down"
+                      ? "border-red-500/40 bg-red-500/10 text-red-100"
+                      : "border-amber-500/40 bg-amber-500/10 text-amber-100",
+                  ].join(" ")}
+                >
+                  <AlertTriangle
+                    className={[
+                      "shrink-0 mt-0.5 w-5 h-5",
+                      agentStatus === "down" ? "text-red-400" : "text-amber-400",
+                    ].join(" ")}
+                    strokeWidth={2.2}
+                  />
+                  <div className="flex-1">
+                    <strong className="text-sm font-semibold text-white block">
+                      {agentStatus === "down" && "Remote cursor will not move — local agent is offline."}
+                      {agentStatus === "warming" && "Starting local agent… your cursor will respond in a moment."}
+                      {agentStatus === "connecting" && "Connecting to local agent…"}
+                      {agentStatus === "off" && "Local agent not started."}
+                    </strong>
+                    {agentStatus === "down" && (
+                      <div className="mt-1.5 text-[13px] leading-relaxed text-amber-100/80">
+                        Open a terminal in the{" "}
+                        <code className="font-mono text-white bg-black/30 px-1.5 py-0.5 rounded">
+                          agent/
+                        </code>{" "}
+                        folder and run{" "}
+                        <code className="font-mono text-white bg-black/30 px-1.5 py-0.5 rounded">
+                          npm start
+                        </code>
+                        , or double-click{" "}
+                        <code className="font-mono text-white bg-black/30 px-1.5 py-0.5 rounded">
+                          start-host.bat
+                        </code>{" "}
+                        from the project root. When the agent boots correctly
+                        you should see a tiny cursor jiggle on this screen.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
-            <div className="toggle">
-              <div className="toggle-label">
-                <span className="name">Remote input</span>
-                <span className="hint">
-                  Auto-enabled on approve — the client can already click and
-                  type. Flip this OFF any time as a kill-switch (agent
-                  disconnects, cursor stops responding instantly).
-                </span>
+              <div className="relative rounded-2xl border border-white/[0.08] overflow-hidden bg-black aspect-video shadow-soft-xl group">
+                <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-accent/20 pointer-events-none" />
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-contain block"
+                />
+                <div className="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
+                  <span className="relative flex w-1.5 h-1.5">
+                    <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
+                    <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-red-500" />
+                  </span>
+                  Live preview
+                </div>
               </div>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={allowControl}
-                onClick={toggleControl}
-              />
+              <p className="mt-3 text-[13px] text-muted leading-relaxed">
+                This is the preview of what{" "}
+                <strong className="text-text">{state.clientName}</strong> is
+                seeing. You can stop at any time by clicking "End session" above
+                or using your browser's native "Stop sharing" control.
+              </p>
             </div>
 
-            {allowControl && (
-              <div className="side-card">
-                <h3>Local mouse agent</h3>
-                <p className="muted" style={{ fontSize: 13 }}>
-                  {agentStatus === "up" && <>
-                    <strong>Ready.</strong> Mouse events are being injected
-                    {agentBackend ? <> via <code>{agentBackend}</code></> : null}.
-                  </>}
-                  {agentStatus === "warming" && <>
-                    <strong>Agent connected, backend warming up.</strong>
-                    {agentBackend === "vb6"
-                      ? <> Start <code>MouseControl.exe</code> (compiled from <code>vb6-agent/MouseControl.vbp</code>) — it should attach within a second.</>
-                      : <> PowerShell is loading the Win32 wrapper — usually less than a second. Moves queued during this time will flush as soon as it's ready.</>}
-                  </>}
-                  {agentStatus === "connecting" && <>Connecting to the local agent at <code>ws://127.0.0.1:8766</code>…</>}
-                  {agentStatus === "down" && <>
-                    <strong>Can't reach the local agent.</strong> Run <code>npm start</code> inside the <code>agent/</code> folder on the host machine (or drop the auto-start shortcut in <code>shell:startup</code>).
-                  </>}
-                  {agentStatus === "off" && <>Toggling on will try to connect to <code>ws://127.0.0.1:8766</code>.</>}
+            <aside className="flex flex-col gap-3">
+              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-4">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
+                  <KeyRound className="w-3 h-3" strokeWidth={2.4} />
+                  Session
+                </h3>
+                <p className="font-mono text-lg font-bold tracking-widest text-text">
+                  {code}
                 </p>
               </div>
-            )}
 
-            <div className="side-card">
-              <h3>Recent events</h3>
-              {incomingLog.length === 0
-                ? <p className="muted">No input received.</p>
-                : (
-                  <ul style={{ margin: 0, padding: 0, listStyle: "none", fontSize: 12.5, lineHeight: 1.7, color: "var(--muted)" }}>
-                    {incomingLog.map((line, i) => <li key={i}>{line}</li>)}
-                  </ul>
-                )}
-            </div>
-          </aside>
-        </div>
-      )}
+              <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm">
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="font-semibold text-sm flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-accent-hi" strokeWidth={2.4} />
+                    Remote input
+                  </span>
+                  <span className="text-xs text-muted leading-snug">
+                    Auto-enabled on approve — the client can already click and
+                    type. Flip this OFF any time as a kill-switch (agent
+                    disconnects, cursor stops responding instantly).
+                  </span>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={allowControl}
+                  onClick={toggleControl}
+                  className={[
+                    "relative shrink-0 w-11 h-6 rounded-full border transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-accent/25",
+                    allowControl
+                      ? "bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow"
+                      : "bg-surface border-border-hi",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "absolute top-0.5 w-5 h-5 rounded-full transition-all duration-200 shadow-md",
+                      allowControl
+                        ? "left-[calc(100%-1.375rem)] bg-white"
+                        : "left-0.5 bg-muted",
+                    ].join(" ")}
+                  />
+                </button>
+              </div>
+
+              {allowControl && (
+                <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-4 animate-fade-in">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
+                    <Cpu className="w-3 h-3" strokeWidth={2.4} />
+                    Local mouse agent
+                  </h3>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AgentStatusDot status={agentStatus} />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-text">
+                      {agentStatus === "up" && "Ready"}
+                      {agentStatus === "warming" && "Warming"}
+                      {agentStatus === "connecting" && "Connecting"}
+                      {agentStatus === "down" && "Offline"}
+                      {agentStatus === "off" && "Idle"}
+                    </span>
+                  </div>
+                  <p className="text-muted text-[13px] leading-relaxed">
+                    {agentStatus === "up" && <>
+                      Mouse events are being injected
+                      {agentBackend ? <> via <code className="font-mono text-accent-hi">{agentBackend}</code></> : null}.
+                    </>}
+                    {agentStatus === "warming" && <>
+                      Agent connected, backend warming up.{" "}
+                      {agentBackend === "vb6"
+                        ? <>Start <code className="font-mono text-accent-hi">MouseControl.exe</code> (compiled from <code className="font-mono text-accent-hi">vb6-agent/MouseControl.vbp</code>) — it should attach within a second.</>
+                        : <>PowerShell is loading the Win32 wrapper — usually less than a second. Moves queued during this time will flush as soon as it's ready.</>}
+                    </>}
+                    {agentStatus === "connecting" && <>Connecting to the local agent at <code className="font-mono text-accent-hi">ws://127.0.0.1:8766</code>…</>}
+                    {agentStatus === "down" && <>
+                      Can't reach the local agent. Run <code className="font-mono text-accent-hi">npm start</code> inside the <code className="font-mono text-accent-hi">agent/</code> folder on the host machine (or drop the auto-start shortcut in <code className="font-mono text-accent-hi">shell:startup</code>).
+                    </>}
+                    {agentStatus === "off" && <>Toggling on will try to connect to <code className="font-mono text-accent-hi">ws://127.0.0.1:8766</code>.</>}
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-4">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
+                  <Activity className="w-3 h-3" strokeWidth={2.4} />
+                  Recent events
+                </h3>
+                {incomingLog.length === 0
+                  ? <p className="text-muted text-[13px] italic">No input received.</p>
+                  : (
+                    <ul className="flex flex-col gap-1 font-mono text-[11.5px] leading-relaxed text-muted max-h-48 overflow-y-auto pr-1">
+                      {incomingLog.map((line, i) => (
+                        <li
+                          key={i}
+                          className="truncate py-0.5 border-b border-white/[0.04] last:border-0"
+                          title={line}
+                        >
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+              </div>
+            </aside>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -655,4 +854,79 @@ export function HostPage() {
 function fmtTime(ts: number): string {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+}
+
+/* ── UI-only helpers ─────────────────────────────────────────────────── */
+
+function StatusPill({
+  kind,
+  label,
+}: {
+  kind: "idle" | "waiting" | "request" | "connected" | "error";
+  label: string;
+}) {
+  const dotColor =
+    kind === "connected" ? "bg-emerald-400"
+    : kind === "waiting" ? "bg-amber-400"
+    : kind === "request" ? "bg-accent-hi"
+    : kind === "error" ? "bg-red-400"
+    : "bg-subtle";
+  const pulse = kind === "waiting" || kind === "request";
+  const ring =
+    kind === "connected" ? "ring-emerald-400/40"
+    : kind === "waiting" ? "ring-amber-400/40"
+    : kind === "request" ? "ring-accent-hi/50"
+    : kind === "error" ? "ring-red-400/40"
+    : "ring-white/10";
+
+  return (
+    <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[12.5px] font-medium bg-surface-2/70 border border-white/[0.06] backdrop-blur-sm">
+      <span className="relative flex w-2 h-2">
+        {pulse && (
+          <span
+            className={[
+              "absolute inline-flex w-full h-full rounded-full opacity-70",
+              dotColor,
+            ].join(" ")}
+            style={{ animation: "ping 1.2s cubic-bezier(0, 0, 0.2, 1) infinite" }}
+          />
+        )}
+        <span
+          className={[
+            "relative inline-flex w-2 h-2 rounded-full ring-2",
+            dotColor,
+            ring,
+          ].join(" ")}
+        />
+      </span>
+      {label}
+    </span>
+  );
+}
+
+function AgentStatusDot({
+  status,
+}: {
+  status: "off" | "connecting" | "warming" | "up" | "down";
+}) {
+  const color =
+    status === "up" ? "bg-emerald-400"
+    : status === "warming" ? "bg-amber-400"
+    : status === "connecting" ? "bg-accent-hi"
+    : status === "down" ? "bg-red-400"
+    : "bg-subtle";
+  const pulse = status === "warming" || status === "connecting";
+  return (
+    <span className="relative flex w-2.5 h-2.5">
+      {pulse && (
+        <span
+          className={[
+            "absolute inline-flex w-full h-full rounded-full opacity-70 animate-ping",
+            color,
+          ].join(" ")}
+        />
+      )}
+      <span className={`relative inline-flex w-2.5 h-2.5 rounded-full ${color}`} />
+    </span>
+  );
 }

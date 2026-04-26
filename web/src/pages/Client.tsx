@@ -18,6 +18,8 @@ import {
   Lightbulb,
   MousePointerClick,
   Shield,
+  PanelRightOpen,
+  PanelRightClose,
 } from "lucide-react";
 
 /**
@@ -45,9 +47,13 @@ type ClientState =
 interface Props {
   /** Optional ?code=… from the URL — lets the host share a one-click link. */
   prefillCode: string | null;
+  /** When true, render in chromeless / iframe-friendly mode. The remote
+   *  screen takes 100% of the viewport, the toolbar floats as an overlay,
+   *  the side panel is collapsed by default. */
+  embed?: boolean;
 }
 
-export function ClientPage({ prefillCode }: Props) {
+export function ClientPage({ prefillCode, embed = false }: Props) {
   const [state, setState] = useState<ClientState>({ kind: "idle" });
   const [code, setCode] = useState(prefillCode?.toUpperCase() ?? "");
   const [clientName, setClientName] = useState("Client");
@@ -59,6 +65,15 @@ export function ClientPage({ prefillCode }: Props) {
   // render because the user can exit via Esc (no click handler fires) — we
   // need the fullscreenchange event to flip the label back on its own.
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Side panel visibility on the connected screen. On large viewports it
+  // defaults to open (so users see the session info / tips); on small or
+  // embed viewports it defaults to closed so the video gets all the space.
+  // A button on the toolbar toggles it.
+  const [sidePanelOpen, setSidePanelOpen] = useState(() => {
+    if (embed) return false;
+    if (typeof window !== "undefined") return window.innerWidth >= 1024;
+    return true;
+  });
 
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef      = useRef<Peer | null>(null);
@@ -379,8 +394,8 @@ export function ClientPage({ prefillCode }: Props) {
 
   if (state.kind === "idle" || state.kind === "disconnected" || state.kind === "rejected") {
     return (
-      <div className="w-full max-w-lg animate-slide-up">
-        <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-8 sm:p-10">
+      <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
+        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <div className="absolute -top-32 -left-32 w-64 h-64 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
 
           <div className="relative">
@@ -475,8 +490,8 @@ export function ClientPage({ prefillCode }: Props) {
 
   if (state.kind === "requesting") {
     return (
-      <div className="w-full max-w-lg animate-slide-up">
-        <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-8 sm:p-10">
+      <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
+        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <StatusPill kind="waiting" label="Sending request…" />
           <h1 className="mt-5 text-3xl font-bold tracking-tight flex items-center gap-3">
             <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
@@ -493,8 +508,8 @@ export function ClientPage({ prefillCode }: Props) {
 
   if (state.kind === "waiting") {
     return (
-      <div className="w-full max-w-lg animate-slide-up">
-        <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-8 sm:p-10">
+      <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
+        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
           <div className="relative">
             <StatusPill kind="waiting" label="Waiting for approval" />
@@ -543,8 +558,8 @@ export function ClientPage({ prefillCode }: Props) {
 
   if (state.kind === "connecting") {
     return (
-      <div className="w-full max-w-lg animate-slide-up">
-        <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-8 sm:p-10">
+      <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
+        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <StatusPill kind="request" label="Approved — connecting…" />
           <h1 className="mt-5 text-3xl font-bold tracking-tight flex items-center gap-3">
             <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
@@ -572,57 +587,139 @@ export function ClientPage({ prefillCode }: Props) {
     );
   }
 
-  // connected
+  // connected — renders an iframe-style "remote screen" view that:
+  //   - fills the available viewport (or the iframe in embed mode)
+  //   - keeps the toolbar always visible but compact on small screens
+  //   - lets the side panel collapse so the video can use full width
+  //   - uses object-contain on <video> so the host's aspect ratio is
+  //     preserved with letterboxing instead of stretching.
   return (
-    <div className="w-full max-w-6xl animate-slide-up">
-      <div className="relative overflow-hidden rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8">
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <StatusPill kind="connected" label={`Connected to ${state.code}`} />
-          {state.allowControl && (
-            <span
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[12.5px] font-medium bg-accent/15 border border-accent/30 text-accent-hi"
-              title="The host has granted you remote input."
-            >
-              <MousePointerClick className="w-3.5 h-3.5" strokeWidth={2.4} />
-              Remote control on
-            </span>
-          )}
-          <div className="flex-1 min-w-[1rem]" />
+    <div
+      className={[
+        "w-full animate-slide-up",
+        // Embed mode = fill the iframe edge-to-edge with no rounding/padding;
+        // normal mode = keep a generous max-width and rounded card.
+        embed
+          ? "w-full h-screen flex flex-col"
+          : "max-w-[min(1600px,100%)] mx-auto flex flex-col",
+      ].join(" ")}
+    >
+      <div
+        className={[
+          "relative flex flex-col flex-1 min-h-0",
+          embed
+            ? "bg-black"
+            : "overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl",
+        ].join(" ")}
+      >
+        {/* ── Toolbar ───────────────────────────────────────────────── */}
+        <div
+          className={[
+            "flex items-center gap-2 sm:gap-3 shrink-0",
+            embed
+              ? "px-2 sm:px-4 py-2 bg-surface/85 backdrop-blur-xl border-b border-white/[0.08]"
+              : "p-3 sm:p-5 md:p-6 pb-3 sm:pb-4 md:pb-5",
+          ].join(" ")}
+        >
+          {/* Status + control badge — collapse to single dot+code on phones */}
+          <div className="flex items-center gap-2 min-w-0">
+            <StatusPill kind="connected" label={`Connected to ${state.code}`} compact />
+            {state.allowControl && (
+              <span
+                className="hidden xs:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-[12.5px] font-medium bg-accent/15 border border-accent/30 text-accent-hi whitespace-nowrap"
+                title="The host has granted you remote input."
+              >
+                <MousePointerClick className="w-3.5 h-3.5" strokeWidth={2.4} />
+                <span className="hidden sm:inline">Remote control on</span>
+                <span className="sm:hidden">Control</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex-1 min-w-[0.5rem]" />
+
+          {/* Icon-only on phone, icon+label from sm: up */}
           <button
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
             onClick={toggleMuted}
             title={muted ? "Unmute shared audio" : "Mute shared audio"}
+            aria-label={muted ? "Unmute" : "Mute"}
           >
             {muted ? (
-              <><VolumeX className="w-4 h-4" strokeWidth={2.2} /> Unmute</>
+              <VolumeX className="w-4 h-4" strokeWidth={2.2} />
             ) : (
-              <><Volume2 className="w-4 h-4" strokeWidth={2.2} /> Mute</>
+              <Volume2 className="w-4 h-4" strokeWidth={2.2} />
             )}
+            <span className="hidden md:inline">{muted ? "Unmute" : "Mute"}</span>
           </button>
+
           <button
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
             onClick={toggleFullscreen}
-            title={isFullscreen ? "Exit fullscreen (Esc)" : "Enlarge the player to full screen"}
+            title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {isFullscreen ? (
-              <><Minimize2 className="w-4 h-4" strokeWidth={2.2} /> Exit fullscreen</>
+              <Minimize2 className="w-4 h-4" strokeWidth={2.2} />
             ) : (
-              <><Maximize2 className="w-4 h-4" strokeWidth={2.2} /> Fullscreen</>
+              <Maximize2 className="w-4 h-4" strokeWidth={2.2} />
             )}
+            <span className="hidden md:inline">
+              {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            </span>
           </button>
+
+          {/* Side-panel toggle — only visible when there's room for one */}
           <button
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+            className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            onClick={() => setSidePanelOpen((o) => !o)}
+            title={sidePanelOpen ? "Hide info panel" : "Show info panel"}
+            aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"}
+            aria-expanded={sidePanelOpen}
+          >
+            {sidePanelOpen ? (
+              <PanelRightClose className="w-4 h-4" strokeWidth={2.2} />
+            ) : (
+              <PanelRightOpen className="w-4 h-4" strokeWidth={2.2} />
+            )}
+            <span className="hidden lg:inline">{sidePanelOpen ? "Hide info" : "Info"}</span>
+          </button>
+
+          <button
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
             onClick={disconnect}
+            title="Disconnect from the session"
+            aria-label="Disconnect"
           >
             <PowerOff className="w-4 h-4" strokeWidth={2.4} />
-            Disconnect
+            <span className="hidden md:inline">Disconnect</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 w-full">
-          <div>
-            <div className="relative rounded-2xl border border-white/[0.08] overflow-hidden bg-black aspect-video shadow-soft-xl">
-              <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-accent/20 pointer-events-none" />
+        {/* ── Body: video + optional side panel ─────────────────────── */}
+        <div
+          className={[
+            "flex-1 min-h-0 flex",
+            // Stack vertically on phone/tablet (panel below video), side-by-side
+            // on lg+ when the panel is open.
+            sidePanelOpen ? "flex-col lg:flex-row" : "flex-col",
+            embed ? "" : "px-3 sm:px-5 md:px-6 pb-3 sm:pb-5 md:pb-6 gap-4 sm:gap-5",
+          ].join(" ")}
+        >
+          {/* Video frame — fills remaining space; preserves aspect via object-contain */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div
+              className={[
+                "relative flex-1 min-h-0 overflow-hidden bg-black",
+                embed
+                  ? ""
+                  : "rounded-xl sm:rounded-2xl border border-white/[0.08] shadow-soft-xl",
+              ].join(" ")}
+              style={{ minHeight: embed ? undefined : "min(60vh, 540px)" }}
+            >
+              {!embed && (
+                <div className="absolute inset-0 rounded-xl sm:rounded-2xl ring-1 ring-inset ring-accent/20 pointer-events-none" />
+              )}
               <video
                 ref={videoRef}
                 autoPlay
@@ -635,57 +732,69 @@ export function ClientPage({ prefillCode }: Props) {
                 tabIndex={0}
                 className="w-full h-full object-contain block focus:outline-none focus:ring-2 focus:ring-accent/50"
               />
-              <div className="pointer-events-none absolute top-3 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
+              <div className="pointer-events-none absolute top-2 sm:top-3 left-2 sm:left-3 inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
                 <span className="relative flex w-1.5 h-1.5">
                   <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
                   <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 </span>
-                Streaming
+                <span>Streaming</span>
               </div>
             </div>
-            <p className="mt-3 text-[13px] text-muted leading-relaxed">
-              {state.allowControl
-                ? "Remote control is on — your clicks and keys are being forwarded to the host."
-                : "View-only. The host controls whether your input is forwarded."}
-            </p>
+            {!embed && (
+              <p className="mt-2 sm:mt-3 text-[12.5px] sm:text-[13px] text-muted leading-relaxed px-1">
+                {state.allowControl
+                  ? "Remote control is on — your clicks and keys are being forwarded to the host."
+                  : "View-only. The host controls whether your input is forwarded."}
+              </p>
+            )}
           </div>
 
-          <aside className="flex flex-col gap-3">
-            <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-4">
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
-                <KeyRound className="w-3 h-3" strokeWidth={2.4} />
-                Session
-              </h3>
-              <p className="font-mono text-lg font-bold tracking-widest text-text">
-                {state.code}
-              </p>
-            </div>
+          {/* Collapsible info panel */}
+          {sidePanelOpen && (
+            <aside
+              className={[
+                "flex flex-col gap-2.5 sm:gap-3 shrink-0 animate-fade-in",
+                embed
+                  ? "w-full lg:w-[300px] p-3 sm:p-4 bg-surface/85 backdrop-blur-xl border-t lg:border-t-0 lg:border-l border-white/[0.08] overflow-y-auto"
+                  : "w-full lg:w-[300px]",
+              ].join(" ")}
+            >
+              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
+                  <KeyRound className="w-3 h-3" strokeWidth={2.4} />
+                  Session
+                </h3>
+                <p className="font-mono text-base sm:text-lg font-bold tracking-widest text-text">
+                  {state.code}
+                </p>
+              </div>
 
-            <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-4">
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
-                <MousePointerClick className="w-3 h-3" strokeWidth={2.4} />
-                Input status
-              </h3>
-              <p className="text-muted text-[13px] leading-relaxed">
-                {state.allowControl
-                  ? "The host has allowed your input. Click the video area to focus it, then interact as you would locally."
-                  : "The host hasn't enabled remote control. You can watch, but your clicks and keys stay on this page."}
-              </p>
-            </div>
+              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
+                  <MousePointerClick className="w-3 h-3" strokeWidth={2.4} />
+                  Input status
+                </h3>
+                <p className="text-muted text-[12.5px] sm:text-[13px] leading-relaxed">
+                  {state.allowControl
+                    ? "The host has allowed your input. Click the video area to focus it, then interact as you would locally."
+                    : "The host hasn't enabled remote control. You can watch, but your clicks and keys stay on this page."}
+                </p>
+              </div>
 
-            <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-4">
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
-                <Lightbulb className="w-3 h-3" strokeWidth={2.4} />
-                Tips
-              </h3>
-              <p className="text-muted text-[13px] leading-relaxed">
-                If the video looks blurry, try resizing the window — the host's
-                screen is scaled to fit. Click the video to focus it before
-                typing, so keys route to the host. Audio plays if the host
-                ticked "Share audio" in the browser picker.
-              </p>
-            </div>
-          </aside>
+              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
+                  <Lightbulb className="w-3 h-3" strokeWidth={2.4} />
+                  Tips
+                </h3>
+                <p className="text-muted text-[12.5px] sm:text-[13px] leading-relaxed">
+                  If the video looks blurry, try resizing the window — the
+                  host's screen is scaled to fit. Click the video to focus it
+                  before typing, so keys route to the host. Audio plays if the
+                  host ticked "Share audio" in the browser picker.
+                </p>
+              </div>
+            </aside>
+          )}
         </div>
       </div>
     </div>
@@ -697,9 +806,12 @@ export function ClientPage({ prefillCode }: Props) {
 function StatusPill({
   kind,
   label,
+  compact = false,
 }: {
   kind: "idle" | "waiting" | "request" | "connected" | "error";
   label: string;
+  /** When true, on small screens render only the dot — saves toolbar width. */
+  compact?: boolean;
 }) {
   const dotColor =
     kind === "connected" ? "bg-emerald-400"
@@ -716,8 +828,13 @@ function StatusPill({
     : "ring-white/10";
 
   return (
-    <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[12.5px] font-medium bg-surface-2/70 border border-white/[0.06] backdrop-blur-sm">
-      <span className="relative flex w-2 h-2">
+    <span
+      className={[
+        "inline-flex items-center gap-2 rounded-full text-[12.5px] font-medium bg-surface-2/70 border border-white/[0.06] backdrop-blur-sm whitespace-nowrap",
+        compact ? "px-2 sm:px-3.5 py-1 sm:py-1.5" : "px-3.5 py-1.5",
+      ].join(" ")}
+    >
+      <span className="relative flex w-2 h-2 shrink-0">
         {pulse && (
           <span
             className={[
@@ -735,7 +852,9 @@ function StatusPill({
           ].join(" ")}
         />
       </span>
-      {label}
+      <span className={compact ? "hidden sm:inline truncate" : "truncate"}>
+        {label}
+      </span>
     </span>
   );
 }

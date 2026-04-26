@@ -65,6 +65,20 @@
   video {
     display: block;
   }
+
+  /* Embed mode — applied when ?embed=1 is in the URL hash. The page is being
+     hosted inside an <iframe>, so we drop the global gradient background
+     glow and disable horizontal scroll bounce. The flex column layout is
+     preserved so children can grow to fill the iframe. */
+  html.embed-mode,
+  body.embed-mode {
+    background-image: none;
+    overflow: hidden;
+  }
+
+  body.embed-mode {
+    background-color: transparent;
+  }
 }
 
 @layer components {

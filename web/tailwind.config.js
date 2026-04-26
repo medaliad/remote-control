@@ -5,6 +5,17 @@ export default {
     "./src/**/*.{ts,tsx}",
   ],
   theme: {
+    // Add an `xs` breakpoint at 480px for finer-grained phone responsiveness.
+    // Tailwind's default breakpoints start at `sm: 640px`, which leaves a big
+    // gap for phones in landscape (~480–640) and large phones in portrait.
+    screens: {
+      xs: "480px",
+      sm: "640px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+    },
     extend: {
       colors: {
         bg: "#07070d",

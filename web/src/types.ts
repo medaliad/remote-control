@@ -15,15 +15,21 @@ export type ErrorCode =
   | "no-pending-request"
   | "not-paired"
   | "bad-message"
-  | "session-ended";
+  | "session-ended"
+  /** Token-based claim (VE Admin auto-pair) was rejected. */
+  | "invalid-token";
 
 export type ClientToServer =
   | { type: "host:create"; hostName?: string }
+  /** VE Admin auto-pair host path — agent opened ?token=… */
+  | { type: "host:claim"; token: string; hostName?: string }
   | { type: "host:approve"; requestId: string }
   | { type: "host:reject"; requestId: string; reason?: string }
   | { type: "host:end" }
   | { type: "host:setControl"; allowed: boolean }
   | { type: "client:join"; code: string; clientName?: string }
+  /** VE Admin auto-pair client path — manager presents the same token. */
+  | { type: "client:claim"; token: string; clientName?: string }
   | { type: "client:cancel" }
   | { type: "signal"; data: unknown };
 

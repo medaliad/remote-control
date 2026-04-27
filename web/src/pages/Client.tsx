@@ -51,9 +51,15 @@ interface Props {
    *  screen takes 100% of the viewport, the toolbar floats as an overlay,
    *  the side panel is collapsed by default. */
   embed?: boolean;
+  /**
+   * VE Admin auto-pair: when present, the page sends `client:claim` with
+   * this token instead of `client:join`, skips the code form entirely,
+   * and connects straight through (no host approve step on the other end).
+   */
+  autoPairToken?: string | null;
 }
 
-export function ClientPage({ prefillCode, embed = false }: Props) {
+export function ClientPage({ prefillCode, embed = false, autoPairToken = null }: Props) {
   const [state, setState] = useState<ClientState>({ kind: "idle" });
   const [code, setCode] = useState(prefillCode?.toUpperCase() ?? "");
   const [clientName, setClientName] = useState("Client");
@@ -98,9 +104,13 @@ export function ClientPage({ prefillCode, embed = false }: Props) {
 
   const sendRequest = useCallback(async () => {
     const trimmed = code.trim().toUpperCase();
-    if (!trimmed) return;
+    // Auto-pair (token) path: no code needed — the server pairs us by
+    // token, and we surface a placeholder label until peer:ready lands.
+    // Manual path: refuse to send if the user hasn't typed anything.
+    if (!autoPairToken && !trimmed) return;
+    const displayCode = trimmed || "AUTO";
 
-    setState({ kind: "requesting", code: trimmed });
+    setState({ kind: "requesting", code: displayCode });
 
     const sig = new Signaling();
     signalingRef.current = sig;
@@ -191,12 +201,36 @@ export function ClientPage({ prefillCode, embed = false }: Props) {
       });
     });
 
-    sig.send({ type: "client:join", code: trimmed, clientName });
+    if (autoPairToken) {
+      // VE Admin path: present the manager-bound token. Server pairs us
+      // straight through and responds with `request:approved` + the usual
+      // `peer:ready`. There is no host-approve round-trip — the token was
+      // minted by an authenticated POST /api/sessions/open, so the host
+      // (the agent's local browser) auto-approves anything matching it.
+      sig.send({ type: "client:claim", token: autoPairToken, clientName });
+    } else {
+      sig.send({ type: "client:join", code: trimmed, clientName });
+    }
     // Synchronously promote to "waiting" now that the join is in flight.
     // Error / approval handlers above will transition us again when the
     // server responds.
     setState((s) => (s.kind === "requesting" ? { kind: "waiting", code: s.code } : s));
-  }, [code, clientName, hardDisconnect]);
+  }, [code, clientName, autoPairToken, hardDisconnect]);
+
+  /* ── Auto-start when arriving with a pairing token ──────────────────── */
+  //
+  // The VE Admin manager UI embeds this page in an iframe with `?token=…`
+  // — the user has already implicitly consented by clicking "Open Session"
+  // on their side, so we shouldn't make them re-type a code here.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoPairToken) return;
+    if (autoStartedRef.current) return;
+    if (state.kind !== "idle") return;
+    autoStartedRef.current = true;
+    void sendRequest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPairToken, sendRequest]);
 
   const cancel = () => {
     signalingRef.current?.send({ type: "client:cancel" });

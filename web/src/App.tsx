@@ -23,8 +23,8 @@ import { MonitorPlay, Eye, Zap } from "lucide-react";
 
 type Route =
   | { kind: "home" }
-  | { kind: "host" }
-  | { kind: "client"; prefillCode: string | null };
+  | { kind: "host"; autoPairToken: string | null }
+  | { kind: "client"; prefillCode: string | null; autoPairToken: string | null };
 
 interface ParsedLocation {
   route: Route;
@@ -36,10 +36,14 @@ function parseLocation(): ParsedLocation {
   const [path, query = ""] = h.slice(1).split("?");
   const qs = new URLSearchParams(query);
   const embed = qs.get("embed") === "1" || qs.get("embed") === "true";
+  // VE Admin auto-pair: a `token=…` on either /host or /client jumps the
+  // page straight past the manual code-entry / share-this-code UIs and
+  // sends the matching `host:claim` / `client:claim` instead.
+  const autoPairToken = qs.get("token") || null;
 
   let route: Route;
-  if (path === "/host")        route = { kind: "host" };
-  else if (path === "/client") route = { kind: "client", prefillCode: qs.get("code") };
+  if (path === "/host")        route = { kind: "host", autoPairToken };
+  else if (path === "/client") route = { kind: "client", prefillCode: qs.get("code"), autoPairToken };
   else                          route = { kind: "home" };
 
   return { route, embed };
@@ -87,8 +91,8 @@ export function App() {
         <main className="flex-1 flex w-full">
           <div key={route.kind} className="w-full flex-1 flex animate-fade-in">
             {route.kind === "home"   && <Home navigate={navigate} embed />}
-            {route.kind === "host"   && <HostPage embed />}
-            {route.kind === "client" && <ClientPage prefillCode={route.prefillCode} embed />}
+            {route.kind === "host"   && <HostPage embed autoPairToken={route.autoPairToken} />}
+            {route.kind === "client" && <ClientPage prefillCode={route.prefillCode} autoPairToken={route.autoPairToken} embed />}
           </div>
         </main>
       </div>
@@ -155,8 +159,8 @@ export function App() {
       <main className="flex-1 flex items-start justify-center px-3 sm:px-6 py-6 sm:py-10 md:py-16">
         <div key={route.kind} className="w-full flex justify-center animate-fade-in">
           {route.kind === "home"   && <Home navigate={navigate} />}
-          {route.kind === "host"   && <HostPage />}
-          {route.kind === "client" && <ClientPage prefillCode={route.prefillCode} />}
+          {route.kind === "host"   && <HostPage autoPairToken={route.autoPairToken} />}
+          {route.kind === "client" && <ClientPage prefillCode={route.prefillCode} autoPairToken={route.autoPairToken} />}
         </div>
       </main>
     </div>

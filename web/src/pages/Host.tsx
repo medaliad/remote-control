@@ -51,9 +51,17 @@ interface HostProps {
   /** When true, render in chromeless / iframe-friendly mode: edge-to-edge,
    *  no rounded card, side panel collapsed by default. */
   embed?: boolean;
+  /**
+   * VE Admin auto-pair: when present, the page sends `host:claim` with
+   * this token instead of `host:create`, skips the "Create session" form,
+   * auto-prompts for screen share, and auto-approves the matching client
+   * once it pairs. The token came from POST /api/sessions/open on the
+   * server and was pushed to the local agent, which opened this page.
+   */
+  autoPairToken?: string | null;
 }
 
-export function HostPage({ embed = false }: HostProps = {}) {
+export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}) {
   const [state, setState] = useState<HostState>({ kind: "idle" });
   const [hostName, setHostName] = useState("Host");
   const [allowControl, setAllowControl] = useState(false);
@@ -269,6 +277,17 @@ export function HostPage({ embed = false }: HostProps = {}) {
     });
 
     sig.on("peer:ready", async () => {
+      // Auto-pair path: there was no manual "Approve" click to flip
+      // allowControl on, so do it here. The agent already proved consent
+      // by accepting the open-session push; it would be a UX surprise to
+      // pair successfully then refuse the manager's clicks. The host can
+      // still flip the toggle off afterwards as a kill-switch.
+      if (autoPairToken && !allowControlRef.current) {
+        allowControlRef.current = true;
+        setAllowControl(true);
+        ensureAgent();
+      }
+
       // Approved — wire up the peer connection *before* we prompt the user
       // for a screen. The client's Peer is created in its own peer:ready
       // handler and immediately opens a DataChannel, which triggers
@@ -371,8 +390,35 @@ export function HostPage({ embed = false }: HostProps = {}) {
       }
     });
 
-    sig.send({ type: "host:create", hostName });
-  }, [hostName, hardDisconnect]);
+    if (autoPairToken) {
+      // VE Admin path: claim a server-minted pairing instead of creating
+      // a fresh code. The reply is the same `session:created` message —
+      // the rest of the state machine doesn't care which path got us here.
+      sig.send({ type: "host:claim", token: autoPairToken, hostName });
+    } else {
+      sig.send({ type: "host:create", hostName });
+    }
+  }, [hostName, autoPairToken, hardDisconnect]);
+
+  /* ── Auto-start when arriving with a pairing token ──────────────────── */
+  //
+  // No "Create session" button to press in the auto-pair flow — the agent
+  // already accepted on behalf of the user by opening this page. We kick
+  // off `createSession` exactly once, on mount, when a token is present
+  // and we're still on the idle screen. The browser's getDisplayMedia
+  // picker still pops up; that one consent moment is intentional and
+  // can't be skipped.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoPairToken) return;
+    if (autoStartedRef.current) return;
+    if (state.kind !== "idle") return;
+    autoStartedRef.current = true;
+    void createSession();
+    // We deliberately don't depend on `state.kind` here — once we've
+    // started, the state machine takes over and a re-fire would clobber it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPairToken, createSession]);
 
   /* ── Handle remote (client) input events ────────────────────────────── */
   //

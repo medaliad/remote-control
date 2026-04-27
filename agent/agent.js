@@ -27,8 +27,10 @@
 // Origin is itself a loopback page" -- the same address space as us.
 
 import net from "node:net";
+import os from "node:os";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 const VB6_HOST = "127.0.0.1";
 const VB6_PORT = 8765;
@@ -38,6 +40,45 @@ const WS_PORT  = 8766;
 const BACKEND        = (process.env.BACKEND || "native").toLowerCase();
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || ""; // "" = loopback-only
 const VERBOSE        = process.env.VERBOSE === "1";
+
+// ---------------------------------------------------------------------------
+// Auto-pair control channel
+// ---------------------------------------------------------------------------
+//
+// The agent optionally maintains a second WebSocket to the *remote* signaling
+// server (the same host that serves the Host/Client web pages). On connect
+// we send `agent:hello` with the OS username; the server records it. When a
+// VE Admin manager later calls POST /api/sessions/open targeting this user,
+// the server pushes us an `open-session` message — we respond by opening
+// the host page in the user's default browser with `?token=…`, which causes
+// the host UI to send `host:claim` and skip the manual "share this code"
+// dance.
+//
+//   AUTOPAIR_URL    Base URL of the signaling server. e.g.
+//                     https://remote-control-cdqo.onrender.com
+//                   The agent derives the WebSocket and host-page URLs from
+//                   this. If unset the auto-pair feature is disabled and
+//                   the agent runs in classic "code-based" mode only.
+//
+//   AUTOPAIR_USER   Override the OS username that gets registered with the
+//                   server. Useful when one Windows account hosts sessions
+//                   for multiple "logical" VE Admin pseudos. Default is
+//                   os.userInfo().username.
+//
+//   AUTOPAIR_AGENT_ID
+//                   Stable identifier for this agent install. Auto-generated
+//                   per-process if unset; persists for the lifetime of this
+//                   process so server-side log lines correlate cleanly.
+//
+//   HOST_PAGE_URL   Override the URL the agent opens in the browser when
+//                   a session token arrives. Defaults to AUTOPAIR_URL +
+//                   "/#/host?token=<token>&embed=0". You'd set this in dev
+//                   to point at the local Vite dev server, e.g.
+//                   http://localhost:5173/#/host
+const AUTOPAIR_URL      = process.env.AUTOPAIR_URL      || ALLOWED_ORIGIN || "";
+const AUTOPAIR_USER     = process.env.AUTOPAIR_USER     || (os.userInfo().username || "");
+const AUTOPAIR_AGENT_ID = process.env.AUTOPAIR_AGENT_ID || `agent-${randomUUID().slice(0, 12)}`;
+const HOST_PAGE_URL     = process.env.HOST_PAGE_URL     || "";
 
 // ---------------------------------------------------------------------------
 // Keyboard mapping: browser KeyboardEvent.code -> Windows Virtual Key code
@@ -601,6 +642,168 @@ function translate(ev) {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-pair control channel client
+// ---------------------------------------------------------------------------
+//
+// One persistent WebSocket to AUTOPAIR_URL/agent. Reconnects with a small
+// exponential backoff so the agent recovers cleanly from server restarts,
+// brief network outages, or laptop sleep/resume cycles.
+
+function autopairWsUrl(base) {
+  if (!base) return "";
+  try {
+    const u = new URL(base);
+    u.protocol = (u.protocol === "https:" ? "wss:" : "ws:");
+    u.pathname = "/agent";
+    u.search = "";
+    u.hash   = "";
+    return u.toString();
+  } catch (e) {
+    console.warn(`[autopair] invalid AUTOPAIR_URL: ${base}`);
+    return "";
+  }
+}
+
+/** Compute the URL of the host page to open when a token arrives. */
+function hostPageUrl(token) {
+  if (HOST_PAGE_URL) {
+    // If the user gave us a custom URL, append the token via the right
+    // separator. We assume the URL is already a hash route ending with
+    // either `#/host` or `#/host?…`.
+    const sep = HOST_PAGE_URL.includes("?") ? "&" : "?";
+    // If the url has a hash but no query inside the hash, ?token= goes
+    // there; otherwise append with &.
+    const hashIdx = HOST_PAGE_URL.indexOf("#");
+    if (hashIdx >= 0) {
+      const before = HOST_PAGE_URL.slice(0, hashIdx);
+      const hash   = HOST_PAGE_URL.slice(hashIdx);
+      const innerSep = hash.includes("?") ? "&" : "?";
+      return `${before}${hash}${innerSep}token=${encodeURIComponent(token)}`;
+    }
+    return `${HOST_PAGE_URL}${sep}token=${encodeURIComponent(token)}`;
+  }
+  if (!AUTOPAIR_URL) return "";
+  // Default form: /#/host?token=…  on the same origin as the signaling
+  // server.
+  return `${AUTOPAIR_URL.replace(/\/$/, "")}/#/host?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Open the user's default browser at `url`. Best-effort and platform-aware:
+ *   - Windows: `cmd /c start "" "<url>"` — the empty title arg is required
+ *     because `start` treats the first quoted arg as the window title.
+ *   - macOS:   `open <url>`
+ *   - Linux:   `xdg-open <url>`
+ * If the spawn fails we log the URL the user can paste manually so the
+ * pairing isn't lost.
+ */
+function openInBrowser(url) {
+  if (!url) return;
+  console.log(`[autopair] opening browser at ${url}`);
+  try {
+    if (process.platform === "win32") {
+      spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    } else if (process.platform === "darwin") {
+      spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+    } else {
+      spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+    }
+  } catch (err) {
+    console.warn(`[autopair] couldn't open browser (${err.message}). Open manually: ${url}`);
+  }
+}
+
+let autopairWs        = null;
+let autopairBackoffMs = 1000;
+let autopairTimer     = null;
+let autopairWanted    = Boolean(AUTOPAIR_URL && AUTOPAIR_USER);
+
+function connectAutopair() {
+  if (!autopairWanted) return;
+  const url = autopairWsUrl(AUTOPAIR_URL);
+  if (!url) return;
+  console.log(`[autopair] connecting to ${url} as user="${AUTOPAIR_USER}" agentId=${AUTOPAIR_AGENT_ID}`);
+  let ws;
+  try { ws = new WebSocket(url); }
+  catch (err) {
+    console.warn(`[autopair] construct failed: ${err.message}`);
+    scheduleAutopairReconnect();
+    return;
+  }
+  autopairWs = ws;
+
+  // Heartbeat — server's keepalive hits us with ws.ping(), but we also
+  // send our own application-level ping every 25s so app-layer firewalls
+  // / proxies don't reap us.
+  let heartbeat = null;
+
+  ws.on("open", () => {
+    autopairBackoffMs = 1000;
+    try {
+      ws.send(JSON.stringify({
+        type:    "agent:hello",
+        user:    AUTOPAIR_USER,
+        agentId: AUTOPAIR_AGENT_ID,
+      }));
+    } catch { /* ignore */ }
+    heartbeat = setInterval(() => {
+      try { ws.send(JSON.stringify({ type: "agent:ping" })); } catch { /* ignore */ }
+    }, 25_000);
+  });
+
+  ws.on("message", (buf) => {
+    let msg;
+    try { msg = JSON.parse(buf.toString("utf8")); }
+    catch { return; }
+    if (!msg || typeof msg.type !== "string") return;
+    if (msg.type === "agent:registered") {
+      console.log(`[autopair] registered (user="${msg.user}")`);
+      return;
+    }
+    if (msg.type === "agent:pong") return;
+    if (msg.type === "open-session") {
+      const token  = String(msg.token       || "");
+      const mgr    = String(msg.managerName || "?");
+      if (!token) return;
+      console.log(`[autopair] open-session from manager "${mgr}" token=${token.slice(0, 8)}…`);
+      openInBrowser(hostPageUrl(token));
+      return;
+    }
+    if (VERBOSE) console.log("[autopair] unknown msg", msg);
+  });
+
+  const onClosed = (code, reason) => {
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+    if (autopairWs === ws) autopairWs = null;
+    if (!autopairWanted) return;
+    console.warn(`[autopair] disconnected (code=${code} reason=${String(reason || "")}). Reconnecting in ${autopairBackoffMs}ms`);
+    scheduleAutopairReconnect();
+  };
+  ws.on("close", (code, reason) => onClosed(code, reason));
+  ws.on("error", (err) => {
+    // Don't reconnect twice — close handler runs after error.
+    if (VERBOSE) console.warn(`[autopair] ws error: ${err.message}`);
+  });
+}
+
+function scheduleAutopairReconnect() {
+  if (autopairTimer) return;
+  autopairTimer = setTimeout(() => {
+    autopairTimer = null;
+    autopairBackoffMs = Math.min(autopairBackoffMs * 2, 30_000);
+    connectAutopair();
+  }, autopairBackoffMs);
+}
+
+if (autopairWanted) {
+  connectAutopair();
+} else if (AUTOPAIR_URL) {
+  console.warn(`[autopair] AUTOPAIR_URL set but AUTOPAIR_USER is empty; auto-pair disabled.`);
+} else {
+  console.log("[autopair] disabled (set AUTOPAIR_URL to enable manager-initiated sessions).");
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket server for the browser Host page
 // ---------------------------------------------------------------------------
 
@@ -658,8 +861,10 @@ wss.on("listening", () => {
 
 process.on("SIGINT", () => {
   console.log("\n[agent] shutting down");
+  autopairWanted = false;
+  if (autopairTimer) { clearTimeout(autopairTimer); autopairTimer = null; }
+  try { autopairWs?.close(); } catch { /* ignore */ }
   try { backend.close(); } catch { /* ignore */ }
   wss.close();
   process.exit(0);
 });
-

@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
 import { generateCode, normalizeCode } from "./code.js";
-import type { ServerToClient } from "./types.js";
+import type { ServerToAgent, ServerToClient } from "./types.js";
 
 /**
  * Owns all in-memory session state. One singleton per server process —
@@ -40,11 +40,52 @@ export interface WsContext {
   pendingRequestId: string | null;
 }
 
+/* ─── Agent + token registry (VE Admin auto-pair path) ──────────────────── */
+
+export interface AgentEntry {
+  user: string;
+  agentId: string;
+  ws: WebSocket;
+  registeredAt: number;
+}
+
+export interface PairingToken {
+  token: string;
+  /** Username this token was minted for — must match the agent that claims it. */
+  user: string;
+  /** Display name of the manager who initiated the open-session call. */
+  managerName: string;
+  /** The host's session code, set once the agent's host page sends host:claim. */
+  hostCode: string | null;
+  /** Manager-side socket waiting for the host to claim. The manager iframe
+   *  almost always loads before the agent's browser does (the manager's
+   *  request triggered the agent push, which then has to spawn a new
+   *  browser process — that takes 1-3 seconds). Instead of failing the
+   *  manager with "invalid-token" we queue them here and resolve the pair
+   *  when host:claim eventually arrives. */
+  pendingClient: { ws: WebSocket; clientName: string } | null;
+  /** When this token can no longer be used. Both host:claim and client:claim
+   *  must happen before this. */
+  expiresAt: number;
+  createdAt: number;
+}
+
+/** How long an open-session token remains usable. Short on purpose: the
+ *  agent should pop the host page within seconds, not minutes. */
+const TOKEN_TTL_MS = 60_000;
+
 export class SessionManager {
   /** code → session */
   private readonly byCode = new Map<string, Session>();
   /** ws → context, so close handlers don't have to scan every session. */
   private readonly contexts = new WeakMap<WebSocket, WsContext>();
+  /** username → agent control-channel entry. Last-write-wins on re-register. */
+  private readonly agents = new Map<string, AgentEntry>();
+  /** Reverse lookup: agent ws → username. Lets us garbage-collect on close
+   *  without scanning the whole agents map. */
+  private readonly agentByWs = new WeakMap<WebSocket, string>();
+  /** token → pairing record. Cleaned up on use, expiry, or session end. */
+  private readonly tokens = new Map<string, PairingToken>();
 
   /** Issue a context record for a freshly-connected socket. */
   attach(ws: WebSocket): WsContext {
@@ -261,14 +302,250 @@ export class SessionManager {
     return toNotify;
   }
 
+  /* ── Agent registry (VE Admin auto-pair control channel) ────────────── */
+
+  /**
+   * Register (or re-register) an agent under a username. If another agent
+   * was already registered for the same user we evict it — the most recent
+   * agent wins so re-launching the local helper "just works" without
+   * stranding stale entries.
+   *
+   * Returns the entry that ended up registered.
+   */
+  registerAgent(ws: WebSocket, user: string, agentId: string): AgentEntry {
+    const key = normalizeUser(user);
+    const previous = this.agents.get(key);
+    if (previous && previous.ws !== ws) {
+      // Drop the stale socket. Don't notify; the new agent owns this user.
+      this.agentByWs.delete(previous.ws);
+      try { previous.ws.close(1000, "agent replaced"); } catch { /* ignore */ }
+    }
+    const entry: AgentEntry = {
+      user: key,
+      agentId,
+      ws,
+      registeredAt: Date.now(),
+    };
+    this.agents.set(key, entry);
+    this.agentByWs.set(ws, key);
+    return entry;
+  }
+
+  /** Unregister an agent on socket close. Cheap WeakMap lookup. */
+  unregisterAgent(ws: WebSocket): string | null {
+    const user = this.agentByWs.get(ws);
+    if (!user) return null;
+    this.agentByWs.delete(ws);
+    const entry = this.agents.get(user);
+    if (entry && entry.ws === ws) this.agents.delete(user);
+    return user;
+  }
+
+  /** Look up the live agent entry for a username, if any. */
+  lookupAgent(user: string): AgentEntry | null {
+    return this.agents.get(normalizeUser(user)) ?? null;
+  }
+
+  /**
+   * Mint a fresh pairing token for a target user. The token is single-use
+   * and short-lived. Both the host (via host:claim) and the manager-client
+   * (via client:claim) must present it before the TTL expires.
+   *
+   * Caller is responsible for actually pushing the open-session message to
+   * the agent — we only own bookkeeping here.
+   */
+  mintToken(user: string, managerName: string): PairingToken {
+    // Sweep expired tokens lazily on each mint. Cheap, bounded work; keeps
+    // the map from growing forever in long-running processes.
+    this.sweepTokens();
+
+    const token = randomUUID().replace(/-/g, "");
+    const record: PairingToken = {
+      token,
+      user: normalizeUser(user),
+      managerName: managerName || "Manager",
+      hostCode: null,
+      pendingClient: null,
+      expiresAt: Date.now() + TOKEN_TTL_MS,
+      createdAt: Date.now(),
+    };
+    this.tokens.set(token, record);
+    return record;
+  }
+
+  /**
+   * Two-arg result of host:claim: whether the host successfully bound a
+   * session, and (separately) whether a manager was already waiting and
+   * just got auto-paired. The caller emits the pair-ready messages itself
+   * so all wire I/O stays in the dispatcher.
+   */
+  /** Auto-paired manager waiter, if any. Returned alongside the host's new
+   *  session so index.ts can fire the same peer:ready sequence as
+   *  claimTokenAsClient. */
+
+  /**
+   * Host page presents a token. We mint a fresh session for the host (so
+   * the existing code-based path still works untouched) and bind that
+   * session's code to the token so the manager-client can find it later.
+   *
+   * If the token is unknown / expired, returns { ok: false }.
+   */
+  claimTokenAsHost(
+    ws: WebSocket,
+    token: string,
+    hostName: string,
+  ):
+    | {
+        ok: true;
+        session: Session;
+        pairing: PairingToken;
+        /** If a manager was already waiting on this token (the common
+         *  case — the iframe loads faster than the agent's browser does),
+         *  we hand the host their pre-paired client right here. The
+         *  caller emits peer:ready to both sides. */
+        pairedClient: WebSocket | null;
+      }
+    | { ok: false; reason: "invalid-token" } {
+    const rec = this.tokens.get(token);
+    if (!rec || rec.expiresAt < Date.now()) {
+      this.tokens.delete(token);
+      return { ok: false, reason: "invalid-token" };
+    }
+    // The host is allowed to claim only once per token. If a code is
+    // already bound, refuse — somebody (likely a copy-paste of the URL)
+    // is trying to start a second host on the same pairing.
+    if (rec.hostCode) return { ok: false, reason: "invalid-token" };
+
+    // Re-use the standard create flow so we don't fork session lifecycle.
+    const session = this.createSession(ws, hostName || `${rec.user} (Auto)`);
+    rec.hostCode = session.code;
+
+    // Promote any waiting manager directly into the session's client slot.
+    let pairedClient: WebSocket | null = null;
+    if (rec.pendingClient) {
+      const { ws: clientWs } = rec.pendingClient;
+      // The manager might have disconnected while waiting. Skip if so.
+      if (clientWs.readyState === 1 /* OPEN */) {
+        session.clientWs = clientWs;
+        const ctx = this.contexts.get(clientWs);
+        if (ctx) {
+          ctx.sessionCode = session.code;
+          ctx.role = "client";
+          ctx.pendingRequestId = null;
+        }
+        pairedClient = clientWs;
+      }
+      rec.pendingClient = null;
+      // Token is consumed by either path — burn it now.
+      this.tokens.delete(token);
+    }
+
+    return { ok: true, session, pairing: rec, pairedClient };
+  }
+
+  /**
+   * Manager-client presents the same token. We pair them straight to the
+   * already-bound host and return both sides so the caller can emit the
+   * peer:ready / request:approved messages itself.
+   *
+   * Note: this skips the host's manual approve step on purpose. The token
+   * was minted by an authenticated POST /api/sessions/open, and the host
+   * (the agent's local browser) auto-approves anything that came from the
+   * server's own mint. The host's "Allow remote input" flag still gates
+   * mouse / keyboard injection — auto-pair only removes the UI ceremony
+   * around connecting, not the security boundary around control.
+   */
+  claimTokenAsClient(
+    ws: WebSocket,
+    token: string,
+    clientName: string,
+  ):
+    | { ok: true; session: Session; clientWs: WebSocket; managerName: string }
+    | { ok: "queued"; managerName: string }
+    | { ok: false; reason: "invalid-token" | "session-full" } {
+    const rec = this.tokens.get(token);
+    if (!rec || rec.expiresAt < Date.now()) {
+      this.tokens.delete(token);
+      return { ok: false, reason: "invalid-token" };
+    }
+
+    // Host hasn't claimed yet — almost certainly the manager iframe just
+    // loaded faster than the agent's browser launch. Park the WS on the
+    // pairing record and resolve the pair when host:claim arrives.
+    if (!rec.hostCode) {
+      // If something else is already queued for this token, that's a
+      // protocol violation (only one manager per pairing); reject.
+      if (rec.pendingClient && rec.pendingClient.ws !== ws) {
+        return { ok: false, reason: "invalid-token" };
+      }
+      rec.pendingClient = { ws, clientName: clientName || "Manager" };
+      // Hint the WS context so socket-close cleanup can null this out
+      // without scanning every token.
+      const ctx = this.contexts.get(ws);
+      if (ctx) ctx.sessionCode = `pending:${token}`; // marker; not a real code
+      return { ok: "queued", managerName: rec.managerName };
+    }
+
+    const session = this.byCode.get(rec.hostCode);
+    if (!session) {
+      // Host left between mint and claim. Drop the token.
+      this.tokens.delete(token);
+      return { ok: false, reason: "invalid-token" };
+    }
+    if (session.clientWs) return { ok: false, reason: "session-full" };
+
+    // Burn the token — single-use.
+    this.tokens.delete(token);
+
+    // Pair directly. No pending entry; no host:approve round-trip.
+    session.clientWs = ws;
+    const ctx = this.contexts.get(ws);
+    if (ctx) {
+      ctx.sessionCode = session.code;
+      ctx.role = "client";
+      ctx.pendingRequestId = null;
+    }
+    return { ok: true, session, clientWs: ws, managerName: rec.managerName };
+  }
+
+  /**
+   * If a manager-side socket disconnects while still queued under a
+   * pairing token, drop it from the token's pendingClient slot. Called
+   * from the close handler. Cheap because we marked the WS context with
+   * `pending:<token>` when queueing.
+   */
+  cancelPendingClaim(ws: WebSocket): void {
+    const ctx = this.contexts.get(ws);
+    if (!ctx?.sessionCode || !ctx.sessionCode.startsWith("pending:")) return;
+    const token = ctx.sessionCode.slice("pending:".length);
+    const rec = this.tokens.get(token);
+    if (rec?.pendingClient?.ws === ws) rec.pendingClient = null;
+    ctx.sessionCode = null;
+  }
+
+  /** Drop tokens whose deadline has passed. */
+  private sweepTokens(): void {
+    const now = Date.now();
+    for (const [token, rec] of this.tokens) {
+      if (rec.expiresAt < now) this.tokens.delete(token);
+    }
+  }
+
   /* ── Diagnostics ────────────────────────────────────────────────────── */
 
   snapshot() {
     return {
       sessions: this.byCode.size,
       totalPending: [...this.byCode.values()].reduce((n, s) => n + s.pending.size, 0),
+      agents: this.agents.size,
+      tokens: this.tokens.size,
     };
   }
+}
+
+/** Lower-case + trim usernames so "JDoe" and "jdoe " resolve to one slot. */
+function normalizeUser(user: string): string {
+  return (user ?? "").trim().toLowerCase();
 }
 
 export type DisconnectEffect =

@@ -511,7 +511,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
     return (
       <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
-          <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
+          <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
 
           <div className="relative">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-accent/25 to-accent/5 border border-accent/30 text-accent-hi mb-5">
@@ -527,8 +527,8 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
             </p>
 
             {state.kind === "disconnected" && (
-              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100 animate-fade-in">
-                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" strokeWidth={2.2} />
+              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800 animate-fade-in">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
                   <strong className="font-semibold">Session ended.</strong> {state.reason}
                 </p>
@@ -544,7 +544,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
               </label>
               <input
                 id="hostName"
-                className="w-full px-4 py-3.5 rounded-xl bg-surface-2/80 border border-white/[0.08] text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15"
+                className="w-full px-4 py-3.5 rounded-xl bg-canvas border border-line text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15"
                 value={hostName}
                 onChange={(e) => setHostName(e.target.value)}
                 maxLength={40}
@@ -577,9 +577,9 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
 
           {/* Loading skeleton */}
           <div className="mt-8 space-y-3">
-            <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
-            <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
-            <div className="h-3 w-2/3 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-2/3 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
           </div>
         </div>
       </div>
@@ -625,7 +625,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
             className={[
               "flex items-center gap-2 sm:gap-3 shrink-0",
               embed
-                ? "px-2 sm:px-4 py-2 bg-surface/85 backdrop-blur-xl border-b border-white/[0.08]"
+                ? "px-2 sm:px-4 py-2 bg-white/95 backdrop-blur border-b border-line"
                 : "p-3 sm:p-5 md:p-6 pb-3 sm:pb-4 md:pb-5",
             ].join(" ")}
           >
@@ -634,7 +634,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
             </div>
             <div className="flex-1 min-w-[0.5rem]" />
             <button
-              className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+              className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line"
               onClick={() => setSidePanelOpen((o) => !o)}
               title={sidePanelOpen ? "Hide info panel" : "Show info panel"}
               aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"}
@@ -648,7 +648,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
               <span className="hidden lg:inline">{sidePanelOpen ? "Hide info" : "Info"}</span>
             </button>
             <button
-              className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+              className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20"
               onClick={endSession}
               title="End the screen-sharing session"
               aria-label="End session"
@@ -664,36 +664,36 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
               className={[
                 "flex items-start gap-3 p-3 sm:p-4 border-b animate-slide-up shrink-0",
                 agentStatus === "down"
-                  ? "border-red-500/40 bg-red-500/10 text-red-100"
-                  : "border-amber-500/40 bg-amber-500/10 text-amber-100",
+                  ? "border-danger/40 bg-red-50 text-red-800"
+                  : "border-warning/40 bg-amber-50 text-amber-800",
               ].join(" ")}
             >
               <AlertTriangle
                 className={[
                   "shrink-0 mt-0.5 w-5 h-5",
-                  agentStatus === "down" ? "text-red-400" : "text-amber-400",
+                  agentStatus === "down" ? "text-danger" : "text-warning",
                 ].join(" ")}
                 strokeWidth={2.2}
               />
               <div className="flex-1 min-w-0">
-                <strong className="text-sm font-semibold text-white block">
+                <strong className="text-sm font-semibold text-text900 block">
                   {agentStatus === "down" && "Remote cursor will not move — local agent is offline."}
                   {agentStatus === "warming" && "Starting local agent… your cursor will respond in a moment."}
                   {agentStatus === "connecting" && "Connecting to local agent…"}
                   {agentStatus === "off" && "Local agent not started."}
                 </strong>
                 {agentStatus === "down" && (
-                  <div className="mt-1.5 text-[12.5px] sm:text-[13px] leading-relaxed text-amber-100/80">
+                  <div className="mt-1.5 text-[12.5px] sm:text-[13px] leading-relaxed text-amber-700/90">
                     Open a terminal in the{" "}
-                    <code className="font-mono text-white bg-black/30 px-1.5 py-0.5 rounded">
+                    <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
                       agent/
                     </code>{" "}
                     folder and run{" "}
-                    <code className="font-mono text-white bg-black/30 px-1.5 py-0.5 rounded">
+                    <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
                       npm start
                     </code>
                     , or double-click{" "}
-                    <code className="font-mono text-white bg-black/30 px-1.5 py-0.5 rounded">
+                    <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
                       start-host.bat
                     </code>{" "}
                     from the project root.
@@ -718,7 +718,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                   "relative flex-1 min-h-0 overflow-hidden bg-black group",
                   embed
                     ? ""
-                    : "rounded-xl sm:rounded-2xl border border-white/[0.08] shadow-soft-xl",
+                    : "rounded-xl sm:rounded-2xl border border-line shadow-soft-xl",
                 ].join(" ")}
                 style={{ minHeight: embed ? undefined : "min(60vh, 540px)" }}
               >
@@ -732,7 +732,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                   playsInline
                   className="w-full h-full object-contain block"
                 />
-                <div className="pointer-events-none absolute top-2 sm:top-3 left-2 sm:left-3 inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
+                <div className="pointer-events-none absolute top-2 sm:top-3 left-2 sm:left-3 inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-line">
                   <span className="relative flex w-1.5 h-1.5">
                     <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
                     <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-red-500" />
@@ -756,11 +756,11 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                 className={[
                   "flex flex-col gap-2.5 sm:gap-3 shrink-0 animate-fade-in",
                   embed
-                    ? "w-full lg:w-[300px] p-3 sm:p-4 bg-surface/85 backdrop-blur-xl border-t lg:border-t-0 lg:border-l border-white/[0.08] overflow-y-auto"
+                    ? "w-full lg:w-[300px] p-3 sm:p-4 bg-white/95 backdrop-blur border-t lg:border-t-0 lg:border-l border-line overflow-y-auto"
                     : "w-full lg:w-[300px]",
                 ].join(" ")}
               >
-                <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+                <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
                     <KeyRound className="w-3 h-3" strokeWidth={2.4} />
                     Session
@@ -770,7 +770,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 p-3 sm:p-4 rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm">
+                <div className="flex items-center justify-between gap-3 p-3 sm:p-4 rounded-xl border border-line bg-canvas">
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="font-semibold text-sm flex items-center gap-1.5">
                       <ShieldCheck className="w-3.5 h-3.5 text-accent-hi" strokeWidth={2.4} />
@@ -789,7 +789,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                       "relative shrink-0 w-11 h-6 rounded-full border transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-accent/25",
                       allowControl
                         ? "bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow"
-                        : "bg-surface border-border-hi",
+                        : "bg-canvas border-border-hi",
                     ].join(" ")}
                   >
                     <span
@@ -804,7 +804,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                 </div>
 
                 {allowControl && (
-                  <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+                  <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4 animate-fade-in">
                     <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                       <Cpu className="w-3 h-3" strokeWidth={2.4} />
                       Local mouse agent
@@ -839,7 +839,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                   </div>
                 )}
 
-                <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+                <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                     <Activity className="w-3 h-3" strokeWidth={2.4} />
                     Recent events
@@ -851,7 +851,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                         {incomingLog.map((line, i) => (
                           <li
                             key={i}
-                            className="truncate py-0.5 border-b border-white/[0.04] last:border-0"
+                            className="truncate py-0.5 border-b border-line last:border-0"
                             title={line}
                           >
                             {line}
@@ -877,7 +877,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
           <StatusPill kind={statusKind} label={statusLabel} />
           <div className="flex-1 min-w-[1rem]" />
           <button
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-semibold text-sm text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+            className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20"
             onClick={endSession}
           >
             <PowerOff className="w-4 h-4" strokeWidth={2.4} />
@@ -899,7 +899,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                 <KeyRound className="w-3.5 h-3.5" strokeWidth={2.4} />
                 Session code
               </span>
-              <span className="relative font-mono font-bold text-4xl xs:text-5xl sm:text-6xl tracking-[0.25em] sm:tracking-[0.3em] text-gradient drop-shadow-[0_0_30px_rgba(124,106,255,0.35)] break-all text-center">
+              <span className="relative font-mono font-bold text-4xl xs:text-5xl sm:text-6xl tracking-[0.25em] sm:tracking-[0.3em] text-gradient drop-shadow-[0_0_30px_rgba(0,139,249,0.18)] break-all text-center">
                 {code}
               </span>
               <div className="relative flex flex-wrap items-center justify-center gap-2 sm:gap-3">
@@ -923,10 +923,10 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
 
             <div className="mt-5 sm:mt-6 flex items-start gap-3 p-3 sm:p-4 rounded-xl border border-accent/20 bg-accent/[0.06]">
               <Shield className="shrink-0 mt-0.5 w-5 h-5 text-accent-hi" strokeWidth={2.2} />
-              <p className="text-[13px] sm:text-sm text-[#d9d3ff]/90 leading-relaxed">
+              <p className="text-[13px] sm:text-sm text-text700 leading-relaxed">
                 When they enter the code, you'll see their request here and can
                 approve or reject it.{" "}
-                <strong className="text-white">Nothing is shared until you approve.</strong>
+                <strong className="text-text900 font-semibold">Nothing is shared until you approve.</strong>
               </p>
             </div>
           </div>
@@ -945,7 +945,7 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
             </p>
 
             <div className="relative overflow-hidden rounded-2xl border border-accent/60 bg-gradient-to-br from-accent/20 via-accent/10 to-transparent p-4 sm:p-6 animate-scale-in shadow-glow">
-              <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-accent/30 blur-3xl pointer-events-none" />
+              <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-primary/15 blur-3xl pointer-events-none" />
               <div className="relative flex items-center gap-3 sm:gap-4 mb-3">
                 <span className="relative inline-flex shrink-0 items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-accent/20 border border-accent/40 text-accent-hi">
                   <CircleDot className="w-5 h-5 animate-pulse-fast" strokeWidth={2.4} />
@@ -965,17 +965,17 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
               </div>
               <div className="relative flex flex-wrap gap-2 sm:gap-3">
                 <button
-                  className="group inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-white shadow-[0_0_30px_-6px_rgba(60,208,133,0.5)] transition-all duration-200 hover:-translate-y-[1px] focus:outline-none focus:ring-4 focus:ring-emerald-500/30 relative overflow-hidden"
+                  className="group inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-white shadow-[0_0_30px_-6px_rgba(60,208,133,0.5)] transition-all duration-200 hover:-translate-y-[1px] focus:outline-none focus:ring-4 focus:ring-success/30 relative overflow-hidden"
                   onClick={approveRequest}
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-emerald-400" />
+                  <span className="absolute inset-0 bg-gradient-to-r from-success to-success" />
                   <span className="relative inline-flex items-center gap-2">
                     <Check className="w-4 h-4" strokeWidth={2.8} />
                     Approve &amp; share
                   </span>
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+                  className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20"
                   onClick={() => rejectRequest("rejected by host")}
                 >
                   <X className="w-4 h-4" strokeWidth={2.6} />
@@ -1021,23 +1021,23 @@ function StatusPill({
   compact?: boolean;
 }) {
   const dotColor =
-    kind === "connected" ? "bg-emerald-400"
-    : kind === "waiting" ? "bg-amber-400"
+    kind === "connected" ? "bg-success"
+    : kind === "waiting" ? "bg-warning"
     : kind === "request" ? "bg-accent-hi"
-    : kind === "error" ? "bg-red-400"
+    : kind === "error" ? "bg-danger"
     : "bg-subtle";
   const pulse = kind === "waiting" || kind === "request";
   const ring =
-    kind === "connected" ? "ring-emerald-400/40"
-    : kind === "waiting" ? "ring-amber-400/40"
+    kind === "connected" ? "ring-success/40"
+    : kind === "waiting" ? "ring-warning/40"
     : kind === "request" ? "ring-accent-hi/50"
-    : kind === "error" ? "ring-red-400/40"
-    : "ring-white/10";
+    : kind === "error" ? "ring-danger/40"
+    : "ring-line";
 
   return (
     <span
       className={[
-        "inline-flex items-center gap-2 rounded-full text-[12.5px] font-medium bg-surface-2/70 border border-white/[0.06] backdrop-blur-sm whitespace-nowrap",
+        "inline-flex items-center gap-2 rounded-full text-[12.5px] font-medium bg-white border border-line whitespace-nowrap",
         compact ? "px-2 sm:px-3.5 py-1 sm:py-1.5" : "px-3.5 py-1.5",
       ].join(" ")}
     >
@@ -1072,10 +1072,10 @@ function AgentStatusDot({
   status: "off" | "connecting" | "warming" | "up" | "down";
 }) {
   const color =
-    status === "up" ? "bg-emerald-400"
-    : status === "warming" ? "bg-amber-400"
+    status === "up" ? "bg-success"
+    : status === "warming" ? "bg-warning"
     : status === "connecting" ? "bg-accent-hi"
-    : status === "down" ? "bg-red-400"
+    : status === "down" ? "bg-danger"
     : "bg-subtle";
   const pulse = status === "warming" || status === "connecting";
   return (

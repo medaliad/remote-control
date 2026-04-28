@@ -430,7 +430,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
     return (
       <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
-          <div className="absolute -top-32 -left-32 w-64 h-64 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
+          <div className="absolute -top-32 -left-32 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
 
           <div className="relative">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-accent/25 to-accent/5 border border-accent/30 text-accent-hi mb-5">
@@ -444,16 +444,16 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
             </p>
 
             {state.kind === "disconnected" && (
-              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100 animate-fade-in">
-                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" strokeWidth={2.2} />
+              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800 animate-fade-in">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
                   <strong className="font-semibold">Session ended.</strong> {state.reason}
                 </p>
               </div>
             )}
             {state.kind === "rejected" && (
-              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-red-100 animate-fade-in">
-                <XCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-400" strokeWidth={2.2} />
+              <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-danger/30 bg-red-50 text-red-800 animate-fade-in">
+                <XCircle className="w-5 h-5 shrink-0 mt-0.5 text-danger" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
                   <strong className="font-semibold">Request rejected.</strong> {state.reason}
                 </p>
@@ -474,7 +474,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
                 />
                 <input
                   id="clientName"
-                  className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-surface-2/80 border border-white/[0.08] text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15"
+                  className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-canvas border border-line text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
                   maxLength={40}
@@ -493,7 +493,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
               </label>
               <input
                 id="code"
-                className="w-full px-4 py-4 rounded-xl bg-surface-2/80 border border-white/[0.08] text-center font-mono text-2xl font-bold tracking-[0.4em] uppercase outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15 placeholder:text-subtle/40 placeholder:tracking-[0.4em]"
+                className="w-full px-4 py-4 rounded-xl bg-canvas border border-line text-center font-mono text-2xl font-bold tracking-[0.4em] uppercase outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15 placeholder:text-subtle/40 placeholder:tracking-[0.4em]"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
                 maxLength={6}
@@ -544,7 +544,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
     return (
       <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
-          <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
+          <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
           <div className="relative">
             <StatusPill kind="waiting" label="Waiting for approval" />
 
@@ -569,16 +569,16 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
 
             <div className="mt-6 flex items-start gap-3 p-4 rounded-xl border border-accent/20 bg-accent/[0.06]">
               <Shield className="shrink-0 mt-0.5 w-5 h-5 text-accent-hi" strokeWidth={2.2} />
-              <p className="text-sm text-[#d9d3ff]/90 leading-relaxed">
+              <p className="text-sm text-text700 leading-relaxed">
                 Tell the host to look for{" "}
-                <strong className="text-white">{clientName}</strong> in their
+                <strong className="text-text900 font-semibold">{clientName}</strong> in their
                 request list on session{" "}
                 <code className="font-mono text-accent-hi">{state.code}</code>.
               </p>
             </div>
 
             <button
-              className="mt-6 w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+              className="mt-6 w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line"
               onClick={cancel}
             >
               <XCircle className="w-4 h-4" strokeWidth={2.4} />
@@ -606,12 +606,12 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
 
           {/* Loading skeleton */}
           <div className="space-y-3 mb-6">
-            <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
-            <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
+            <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
           </div>
 
           <button
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line"
             onClick={disconnect}
           >
             Cancel
@@ -651,7 +651,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
           className={[
             "flex items-center gap-2 sm:gap-3 shrink-0",
             embed
-              ? "px-2 sm:px-4 py-2 bg-surface/85 backdrop-blur-xl border-b border-white/[0.08]"
+              ? "px-2 sm:px-4 py-2 bg-white/95 backdrop-blur border-b border-line"
               : "p-3 sm:p-5 md:p-6 pb-3 sm:pb-4 md:pb-5",
           ].join(" ")}
         >
@@ -674,7 +674,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
 
           {/* Icon-only on phone, icon+label from sm: up */}
           <button
-            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line"
             onClick={toggleMuted}
             title={muted ? "Unmute shared audio" : "Mute shared audio"}
             aria-label={muted ? "Unmute" : "Mute"}
@@ -688,7 +688,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
           </button>
 
           <button
-            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line"
             onClick={toggleFullscreen}
             title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
             aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -705,7 +705,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
 
           {/* Side-panel toggle — only visible when there's room for one */}
           <button
-            className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-surface-2/80 border border-white/[0.08] transition-all duration-200 hover:bg-surface-2 hover:border-white/20 focus:outline-none focus:ring-4 focus:ring-white/10"
+            className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line"
             onClick={() => setSidePanelOpen((o) => !o)}
             title={sidePanelOpen ? "Hide info panel" : "Show info panel"}
             aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"}
@@ -720,7 +720,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
           </button>
 
           <button
-            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-300 bg-red-500/10 border border-red-500/30 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 focus:outline-none focus:ring-4 focus:ring-red-500/20"
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20"
             onClick={disconnect}
             title="Disconnect from the session"
             aria-label="Disconnect"
@@ -747,7 +747,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
                 "relative flex-1 min-h-0 overflow-hidden bg-black",
                 embed
                   ? ""
-                  : "rounded-xl sm:rounded-2xl border border-white/[0.08] shadow-soft-xl",
+                  : "rounded-xl sm:rounded-2xl border border-line shadow-soft-xl",
               ].join(" ")}
               style={{ minHeight: embed ? undefined : "min(60vh, 540px)" }}
             >
@@ -766,10 +766,10 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
                 tabIndex={0}
                 className="w-full h-full object-contain block focus:outline-none focus:ring-2 focus:ring-accent/50"
               />
-              <div className="pointer-events-none absolute top-2 sm:top-3 left-2 sm:left-3 inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-white/10">
+              <div className="pointer-events-none absolute top-2 sm:top-3 left-2 sm:left-3 inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-[10px] font-semibold uppercase tracking-wider text-white border border-line">
                 <span className="relative flex w-1.5 h-1.5">
-                  <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                  <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                  <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-success" />
                 </span>
                 <span>Streaming</span>
               </div>
@@ -789,11 +789,11 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
               className={[
                 "flex flex-col gap-2.5 sm:gap-3 shrink-0 animate-fade-in",
                 embed
-                  ? "w-full lg:w-[300px] p-3 sm:p-4 bg-surface/85 backdrop-blur-xl border-t lg:border-t-0 lg:border-l border-white/[0.08] overflow-y-auto"
+                  ? "w-full lg:w-[300px] p-3 sm:p-4 bg-white/95 backdrop-blur border-t lg:border-t-0 lg:border-l border-line overflow-y-auto"
                   : "w-full lg:w-[300px]",
               ].join(" ")}
             >
-              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+              <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
                   <KeyRound className="w-3 h-3" strokeWidth={2.4} />
                   Session
@@ -803,7 +803,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
                 </p>
               </div>
 
-              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+              <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                   <MousePointerClick className="w-3 h-3" strokeWidth={2.4} />
                   Input status
@@ -815,7 +815,7 @@ export function ClientPage({ prefillCode, embed = false, autoPairToken = null }:
                 </p>
               </div>
 
-              <div className="rounded-xl border border-white/[0.06] bg-surface-2/60 backdrop-blur-sm p-3 sm:p-4">
+              <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                   <Lightbulb className="w-3 h-3" strokeWidth={2.4} />
                   Tips
@@ -848,23 +848,23 @@ function StatusPill({
   compact?: boolean;
 }) {
   const dotColor =
-    kind === "connected" ? "bg-emerald-400"
-    : kind === "waiting" ? "bg-amber-400"
+    kind === "connected" ? "bg-success"
+    : kind === "waiting" ? "bg-warning"
     : kind === "request" ? "bg-accent-hi"
-    : kind === "error" ? "bg-red-400"
+    : kind === "error" ? "bg-danger"
     : "bg-subtle";
   const pulse = kind === "waiting" || kind === "request";
   const ring =
-    kind === "connected" ? "ring-emerald-400/40"
-    : kind === "waiting" ? "ring-amber-400/40"
+    kind === "connected" ? "ring-success/40"
+    : kind === "waiting" ? "ring-warning/40"
     : kind === "request" ? "ring-accent-hi/50"
-    : kind === "error" ? "ring-red-400/40"
-    : "ring-white/10";
+    : kind === "error" ? "ring-danger/40"
+    : "ring-line";
 
   return (
     <span
       className={[
-        "inline-flex items-center gap-2 rounded-full text-[12.5px] font-medium bg-surface-2/70 border border-white/[0.06] backdrop-blur-sm whitespace-nowrap",
+        "inline-flex items-center gap-2 rounded-full text-[12.5px] font-medium bg-white border border-line whitespace-nowrap",
         compact ? "px-2 sm:px-3.5 py-1 sm:py-1.5" : "px-3.5 py-1.5",
       ].join(" ")}
     >

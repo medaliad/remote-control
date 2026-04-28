@@ -2,11 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap");
+/*
+ * Match the VE Admin Flutter app: Barlow as the global UI font.
+ * JetBrains Mono is kept for the rare `font-mono` spots (session code etc.)
+ * because a code-style monospace still reads better there than tabular Barlow.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap");
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   html,
@@ -18,31 +23,22 @@
 
   body {
     @apply bg-bg text-text font-sans antialiased;
-    background-image:
-      radial-gradient(
-        ellipse 80% 50% at 50% -10%,
-        rgba(124, 106, 255, 0.18),
-        transparent 60%
-      ),
-      radial-gradient(
-        ellipse 60% 40% at 100% 30%,
-        rgba(147, 132, 255, 0.12),
-        transparent 50%
-      ),
-      radial-gradient(
-        ellipse 60% 40% at 0% 70%,
-        rgba(90, 72, 224, 0.10),
-        transparent 50%
-      );
+    /* Very subtle brand-blue glow at the top — keeps the canvas calm,
+       doesn't compete with the VE Admin panels. */
+    background-image: radial-gradient(
+      ellipse 80% 50% at 50% -20%,
+      rgba(0, 139, 249, 0.06),
+      transparent 60%
+    );
     background-attachment: fixed;
   }
 
   ::selection {
-    background-color: rgba(124, 106, 255, 0.35);
-    color: #fff;
+    background-color: rgba(4, 86, 146, 0.18);
+    color: #013059;
   }
 
-  /* Custom scrollbar — subtle, matches the dark palette */
+  /* Custom scrollbar — subtle blue tint to match the VE Admin palette. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -51,13 +47,13 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(124, 106, 255, 0.15);
+    background: rgba(4, 86, 146, 0.18);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(124, 106, 255, 0.3);
+    background: rgba(4, 86, 146, 0.32);
     background-clip: padding-box;
   }
 
@@ -67,9 +63,9 @@
   }
 
   /* Embed mode — applied when ?embed=1 is in the URL hash. The page is being
-     hosted inside an <iframe>, so we drop the global gradient background
-     glow and disable horizontal scroll bounce. The flex column layout is
-     preserved so children can grow to fill the iframe. */
+     hosted inside an <iframe>, so we drop the global gradient background and
+     disable horizontal scroll bounce. The flex column layout is preserved so
+     children can grow to fill the iframe. */
   html.embed-mode,
   body.embed-mode {
     background-image: none;
@@ -82,28 +78,21 @@
 }
 
 @layer components {
-  /* Glass surface — used by nav, cards, panels */
+  /* Card surface in the VE Admin look — white panel, hairline border,
+     soft drop shadow. Replaces the old "glass / dark backdrop-blur" style. */
   .glass {
-    @apply bg-surface/70 backdrop-blur-xl border border-white/[0.06];
+    @apply bg-white border border-line text-text;
+    box-shadow:
+      0 1px 2px rgba(11, 31, 58, 0.04),
+      0 4px 12px rgba(11, 31, 58, 0.06);
   }
 
   .glass-strong {
-    @apply bg-surface/85 backdrop-blur-2xl border border-white/[0.08];
+    @apply bg-white border border-line text-text;
+    box-shadow:
+      0 4px 14px rgba(11, 31, 58, 0.06),
+      0 12px 32px rgba(11, 31, 58, 0.08);
   }
 
-  /* Reusable gradient text */
-  .text-gradient {
-    @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #fff 0%, #c9c2ff 50%, #9384ff 100%);
-  }
-
-  /* Grid-dot background used on the landing hero */
-  .bg-dots {
-    background-image: radial-gradient(
-      circle at 1px 1px,
-      rgba(255, 255, 255, 0.07) 1px,
-      transparent 0
-    );
-    background-size: 22px 22px;
-  }
-}
+  /* Brand-gradient text — uses the VE Admin blues. */
+  .t

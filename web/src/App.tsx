@@ -87,7 +87,7 @@ export function App() {
   // on its own (a small form) still anchors at the top.
   if (embed) {
     return (
-      <div className="relative min-h-screen w-full flex flex-col bg-bg overflow-hidden">
+      <div className="relative min-h-screen w-full flex flex-col bg-canvas overflow-hidden">
         <main className="flex-1 flex w-full">
           <div key={route.kind} className="w-full flex-1 flex animate-fade-in">
             {route.kind === "home"   && <Home navigate={navigate} embed />}
@@ -101,24 +101,17 @@ export function App() {
 
   return (
     <div className="relative min-h-screen flex flex-col overflow-x-hidden">
-      {/* Decorative animated glow blobs -- pure visual, no interactivity */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[5%] w-[40rem] h-[40rem] rounded-full bg-accent/20 blur-3xl animate-blob-float" />
-        <div className="absolute bottom-[-15%] right-[-5%] w-[35rem] h-[35rem] rounded-full bg-accent-hi/15 blur-3xl animate-blob-float [animation-delay:-4s]" />
-      </div>
-
-      <nav className="sticky top-0 z-20 glass-strong border-b border-white/[0.06]">
+      <nav className="sticky top-0 z-20 bg-white/95 backdrop-blur-xl border-b border-line">
         <div className="max-w-7xl mx-auto flex items-center gap-2 sm:gap-3 px-3 sm:px-5 md:px-8 py-3 sm:py-3.5">
           <a
-            className="group inline-flex items-center gap-2 sm:gap-2.5 font-semibold tracking-tight transition-transform hover:-translate-y-[1px] min-w-0"
+            className="group inline-flex items-center gap-2 sm:gap-2.5 font-semibold tracking-tight transition-transform hover:-translate-y-[1px] min-w-0 text-text"
             href="#/"
           >
-            <span className="relative w-9 h-9 rounded-xl grid place-items-center text-white shadow-glow overflow-hidden shrink-0">
-              <span className="absolute inset-0 bg-gradient-to-br from-accent via-accent-hi to-[#a78bfa] bg-[length:200%_200%] animate-gradient-shift" />
+            <span className="relative w-9 h-9 rounded-xl grid place-items-center text-white shadow-glow overflow-hidden shrink-0 bg-gradient-to-br from-primary to-accent-hi">
               <Zap className="relative w-4 h-4 fill-white" strokeWidth={2.5} />
             </span>
             <span className="flex flex-col leading-tight min-w-0">
-              <span className="text-[14px] sm:text-[15px] font-bold truncate">Remote Access</span>
+              <span className="text-[14px] sm:text-[15px] font-bold truncate text-text900">Remote Access</span>
               <span className="hidden sm:inline text-[10px] font-medium uppercase tracking-[0.18em] text-muted">
                 Peer &middot; Secure &middot; Instant
               </span>
@@ -131,8 +124,8 @@ export function App() {
             className={[
               "relative inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
               route.kind === "host"
-                ? "text-white bg-accent/15 shadow-[inset_0_0_0_1px_rgba(124,106,255,0.4)]"
-                : "text-muted hover:text-text hover:bg-white/[0.04]",
+                ? "text-primary bg-primary-soft border border-primary/15"
+                : "text-muted hover:text-text900 hover:bg-canvas",
             ].join(" ")}
             href="#/host"
             onClick={(e) => { e.preventDefault(); navigate("host"); }}
@@ -144,8 +137,8 @@ export function App() {
             className={[
               "relative inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
               route.kind === "client"
-                ? "text-white bg-accent/15 shadow-[inset_0_0_0_1px_rgba(124,106,255,0.4)]"
-                : "text-muted hover:text-text hover:bg-white/[0.04]",
+                ? "text-primary bg-primary-soft border border-primary/15"
+                : "text-muted hover:text-text900 hover:bg-canvas",
             ].join(" ")}
             href="#/client"
             onClick={(e) => { e.preventDefault(); navigate("client"); }}

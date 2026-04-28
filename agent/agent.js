@@ -26,8 +26,12 @@
 // If ALLOWED_ORIGIN is unset we default to "only accept browsers whose
 // Origin is itself a loopback page" -- the same address space as us.
 
+
 import net from "node:net";
 import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { WebSocket, WebSocketServer } from "ws";
@@ -37,48 +41,124 @@ const VB6_PORT = 8765;
 const WS_HOST  = "127.0.0.1";
 const WS_PORT  = 8766;
 
-const BACKEND        = (process.env.BACKEND || "native").toLowerCase();
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || ""; // "" = loopback-only
-const VERBOSE        = process.env.VERBOSE === "1";
+/* ─── Config loader ──────────────────────────────────────────────────────── */
+//
+// Resolution order, highest priority first:
+//   1. Process env vars (AUTOPAIR_URL, AUTOPAIR_USER, ALLOWED_ORIGIN, BACKEND…)
+//   2. config.json next to this script (portable / dev mode)
+//   3. config.json under the per-user data dir, written by install.ps1:
+//        Windows: %LocalAppData%\VEAdminAgent\config.json
+//        macOS:   ~/Library/Application Support/VEAdminAgent/config.json
+//        Linux:   ~/.config/VEAdminAgent/config.json
+//   4. Built-in defaults
+//
+// On first launch with no config and no AUTOPAIR_URL env var the agent
+// drops into firstRunWizard() to populate config.json. The installer
+// pre-writes it so end users never see the wizard.
 
-// ---------------------------------------------------------------------------
-// Auto-pair control channel
-// ---------------------------------------------------------------------------
-//
-// The agent optionally maintains a second WebSocket to the *remote* signaling
-// server (the same host that serves the Host/Client web pages). On connect
-// we send `agent:hello` with the OS username; the server records it. When a
-// VE Admin manager later calls POST /api/sessions/open targeting this user,
-// the server pushes us an `open-session` message — we respond by opening
-// the host page in the user's default browser with `?token=…`, which causes
-// the host UI to send `host:claim` and skip the manual "share this code"
-// dance.
-//
-//   AUTOPAIR_URL    Base URL of the signaling server. e.g.
-//                     https://remote-control-cdqo.onrender.com
-//                   The agent derives the WebSocket and host-page URLs from
-//                   this. If unset the auto-pair feature is disabled and
-//                   the agent runs in classic "code-based" mode only.
-//
-//   AUTOPAIR_USER   Override the OS username that gets registered with the
-//                   server. Useful when one Windows account hosts sessions
-//                   for multiple "logical" VE Admin pseudos. Default is
-//                   os.userInfo().username.
-//
-//   AUTOPAIR_AGENT_ID
-//                   Stable identifier for this agent install. Auto-generated
-//                   per-process if unset; persists for the lifetime of this
-//                   process so server-side log lines correlate cleanly.
-//
-//   HOST_PAGE_URL   Override the URL the agent opens in the browser when
-//                   a session token arrives. Defaults to AUTOPAIR_URL +
-//                   "/#/host?token=<token>&embed=0". You'd set this in dev
-//                   to point at the local Vite dev server, e.g.
-//                   http://localhost:5173/#/host
-const AUTOPAIR_URL      = process.env.AUTOPAIR_URL      || ALLOWED_ORIGIN || "";
-const AUTOPAIR_USER     = process.env.AUTOPAIR_USER     || (os.userInfo().username || "");
-const AUTOPAIR_AGENT_ID = process.env.AUTOPAIR_AGENT_ID || `agent-${randomUUID().slice(0, 12)}`;
-const HOST_PAGE_URL     = process.env.HOST_PAGE_URL     || "";
+const PROGRAM_NAME = "VEAdminAgent";
+
+function userDataDir() {
+  if (process.platform === "win32") {
+    return path.join(process.env.LOCALAPPDATA || os.homedir(), PROGRAM_NAME);
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", PROGRAM_NAME);
+  }
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), PROGRAM_NAME);
+}
+
+const CONFIG_DIR  = userDataDir();
+const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
+// Resolve "next-to-script" robustly across Windows file:// URLs.
+const SCRIPT_DIR = path.dirname(
+  new URL(import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, "")
+);
+const SCRIPT_CONFIG_PATH = path.join(SCRIPT_DIR, "config.json");
+
+function readJsonFile(filePath) {
+  try { return JSON.parse(fs.readFileSync(filePath, "utf8")); }
+  catch (err) {
+    if (err && err.code !== "ENOENT") {
+      console.warn(`[config] couldn't parse ${filePath}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+const fileConfig = readJsonFile(SCRIPT_CONFIG_PATH) ?? readJsonFile(CONFIG_PATH) ?? {};
+
+function pick(envName, configKey, fallback = "") {
+  const fromEnv = process.env[envName];
+  if (fromEnv != null && fromEnv !== "") return fromEnv;
+  const fromCfg = fileConfig[configKey];
+  if (fromCfg != null && fromCfg !== "") return String(fromCfg);
+  return fallback;
+}
+
+const BACKEND        = (pick("BACKEND", "backend", "native")).toLowerCase();
+const ALLOWED_ORIGIN = pick("ALLOWED_ORIGIN", "allowedOrigin", ""); // "" = loopback-only
+const VERBOSE        = pick("VERBOSE", "verbose", "") === "1";
+
+let AUTOPAIR_URL      = pick("AUTOPAIR_URL",      "autopairUrl", ALLOWED_ORIGIN || "");
+let AUTOPAIR_USER     = pick("AUTOPAIR_USER",     "autopairUser", os.userInfo().username || "");
+let AUTOPAIR_AGENT_ID = pick("AUTOPAIR_AGENT_ID", "autopairAgentId", "");
+let HOST_PAGE_URL     = pick("HOST_PAGE_URL",     "hostPageUrl", "");
+
+// First-run wizard — interactive prompt when no config exists yet and the
+// process has a real TTY. The installer skips this by writing config.json
+// before the agent ever starts.
+async function firstRunWizard() {
+  const haveConfig = fs.existsSync(CONFIG_PATH) || fs.existsSync(SCRIPT_CONFIG_PATH);
+  if (haveConfig || AUTOPAIR_URL || !process.stdin.isTTY) return;
+
+  console.log("");
+  console.log("──────────────────────────────────────────────────────────────");
+  console.log(" VE Admin agent — first run                                   ");
+  console.log(" Answer two quick questions to enable Auto Session, or press  ");
+  console.log(" Ctrl+C to skip and run code-only mode.                       ");
+  console.log("──────────────────────────────────────────────────────────────");
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q, def = "") => new Promise((res) => {
+    rl.question(def ? `${q} [${def}] ` : `${q} `, (a) => res(String(a).trim() || def));
+  });
+  const url  = await ask("Signaling server URL:", "https://remote-control-cdqo.onrender.com");
+  const user = await ask("Username to register as:", os.userInfo().username || "");
+  rl.close();
+  if (!url || !user) {
+    console.log("[config] skipped — auto-pair stays disabled.");
+    return;
+  }
+  AUTOPAIR_URL  = url;
+  AUTOPAIR_USER = user;
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({
+      autopairUrl:   url,
+      autopairUser:  user,
+      allowedOrigin: url,
+    }, null, 2) + "\n", "utf8");
+    console.log(`[config] saved to ${CONFIG_PATH}`);
+  } catch (err) {
+    console.warn(`[config] couldn't save config.json: ${err.message}`);
+  }
+}
+await firstRunWizard();
+
+// Persist a stable agent id so server logs correlate across restarts.
+if (!AUTOPAIR_AGENT_ID) {
+  if (fileConfig.autopairAgentId) {
+    AUTOPAIR_AGENT_ID = String(fileConfig.autopairAgentId);
+  } else {
+    AUTOPAIR_AGENT_ID = `agent-${randomUUID().slice(0, 12)}`;
+    try {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      const merged = { ...fileConfig, autopairAgentId: AUTOPAIR_AGENT_ID };
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2) + "\n", "utf8");
+    } catch { /* not fatal */ }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Keyboard mapping: browser KeyboardEvent.code -> Windows Virtual Key code

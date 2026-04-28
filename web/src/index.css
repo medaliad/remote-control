@@ -4,8 +4,7 @@
 
 /*
  * Match the VE Admin Flutter app: Barlow as the global UI font.
- * JetBrains Mono is kept for the rare `font-mono` spots (session code etc.)
- * because a code-style monospace still reads better there than tabular Barlow.
+ * JetBrains Mono is kept for the rare `font-mono` spots (session code etc.).
  */
 @import url("https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap");
 
@@ -23,8 +22,6 @@
 
   body {
     @apply bg-bg text-text font-sans antialiased;
-    /* Very subtle brand-blue glow at the top — keeps the canvas calm,
-       doesn't compete with the VE Admin panels. */
     background-image: radial-gradient(
       ellipse 80% 50% at 50% -20%,
       rgba(0, 139, 249, 0.06),
@@ -38,7 +35,6 @@
     color: #013059;
   }
 
-  /* Custom scrollbar — subtle blue tint to match the VE Admin palette. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -57,15 +53,10 @@
     background-clip: padding-box;
   }
 
-  /* Video element reset so Tailwind aspect-video wrappers control sizing */
   video {
     display: block;
   }
 
-  /* Embed mode — applied when ?embed=1 is in the URL hash. The page is being
-     hosted inside an <iframe>, so we drop the global gradient background and
-     disable horizontal scroll bounce. The flex column layout is preserved so
-     children can grow to fill the iframe. */
   html.embed-mode,
   body.embed-mode {
     background-image: none;
@@ -78,21 +69,23 @@
 }
 
 @layer components {
-  /* Card surface in the VE Admin look — white panel, hairline border,
-     soft drop shadow. Replaces the old "glass / dark backdrop-blur" style. */
   .glass {
     @apply bg-white border border-line text-text;
-    box-shadow:
-      0 1px 2px rgba(11, 31, 58, 0.04),
-      0 4px 12px rgba(11, 31, 58, 0.06);
+    box-shadow: 0 1px 2px rgba(11, 31, 58, 0.04), 0 4px 12px rgba(11, 31, 58, 0.06);
   }
 
   .glass-strong {
     @apply bg-white border border-line text-text;
-    box-shadow:
-      0 4px 14px rgba(11, 31, 58, 0.06),
-      0 12px 32px rgba(11, 31, 58, 0.08);
+    box-shadow: 0 4px 14px rgba(11, 31, 58, 0.06), 0 12px 32px rgba(11, 31, 58, 0.08);
   }
 
-  /* Brand-gradient text — uses the VE Admin blues. */
-  .t
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #013059 0%, #045692 50%, #008BF9 100%);
+  }
+
+  .bg-dots {
+    background-image: radial-gradient(circle at 1px 1px, rgba(4, 86, 146, 0.10) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+}

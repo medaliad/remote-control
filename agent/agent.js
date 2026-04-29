@@ -105,6 +105,16 @@ let AUTOPAIR_USER     = pick("AUTOPAIR_USER",     "autopairUser", os.userInfo().
 let AUTOPAIR_AGENT_ID = pick("AUTOPAIR_AGENT_ID", "autopairAgentId", "");
 let HOST_PAGE_URL     = pick("HOST_PAGE_URL",     "hostPageUrl", "");
 
+// Normalize the username we'll register as. The server stores agents under
+// `trim().toLowerCase()` (see SessionManager.normalizeUser) and the VE Admin
+// Flutter app sends the same canonical form — `email.local-part.toLowerCase()`.
+// We do the same here so a config that says "Dali" or " dali " matches a
+// manager call for "dali" without surprises.
+function normalizeUsername(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+AUTOPAIR_USER = normalizeUsername(AUTOPAIR_USER);
+
 // First-run wizard — interactive prompt when no config exists yet and the
 // process has a real TTY. The installer skips this by writing config.json
 // before the agent ever starts.
@@ -131,12 +141,12 @@ async function firstRunWizard() {
     return;
   }
   AUTOPAIR_URL  = url;
-  AUTOPAIR_USER = user;
+  AUTOPAIR_USER = normalizeUsername(user);
   try {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({
       autopairUrl:   url,
-      autopairUser:  user,
+      autopairUser:  AUTOPAIR_USER,
       allowedOrigin: url,
     }, null, 2) + "\n", "utf8");
     console.log(`[config] saved to ${CONFIG_PATH}`);
@@ -240,25 +250,65 @@ const KEY_CODE_TO_XDO = {
 // ---------------------------------------------------------------------------
 //
 // Returning true means "this WebSocket client is allowed to drive my mouse".
-// There are two permitted cases:
-//   (1) ALLOWED_ORIGIN is explicitly set and matches the request's Origin.
-//       Typical production: set it to your Render URL.
-//   (2) ALLOWED_ORIGIN is empty AND the Origin is a loopback page (file://,
-//       http(s)://localhost, http(s)://127.0.0.1). This covers dev usage.
+// We accept three categories of caller:
 //
-// Anything else is dropped with a 403. Combined with the 127.0.0.1 bind
-// below, it means: even another browser tab open on the same machine can't
-// make the agent move your mouse unless it came from a page whose Origin
-// matches the allowlist.
-function isAllowedOrigin(origin) {
-  if (!origin) return ALLOWED_ORIGIN === "" ? true : false;
-  if (ALLOWED_ORIGIN) return origin === ALLOWED_ORIGIN;
+//   (1) Loopback origins — http(s)://localhost, http(s)://127.0.0.1, ::1.
+//       Always permitted. The WS server only binds to 127.0.0.1, so anything
+//       that reaches us from a loopback page came from this same machine.
+//
+//   (2) Any origin in our known allowlist: ALLOWED_ORIGIN, AUTOPAIR_URL, or
+//       HOST_PAGE_URL. We compare *origin* (protocol + host[:port]) only,
+//       and we strip trailing slashes — that way a config that has
+//       "https://app.example.com/" set still matches a browser sending
+//       Origin "https://app.example.com" (browsers never include a path).
+//       Keeping the allowlist as the union of all three URLs the agent
+//       knows about means: if a user configured AUTOPAIR_URL but forgot
+//       ALLOWED_ORIGIN, the host page from that same server still works
+//       instead of being silently 403'd.
+//
+//   (3) Empty Origin header AND no allowlist configured at all — historical
+//       loopback-only default for dev.
+//
+// Combined with the 127.0.0.1 bind below, this means: even another browser
+// tab open on the same machine can't make the agent move your mouse unless
+// it came from a page whose Origin is in the allowlist.
+function _normalizeOriginValue(value) {
+  if (!value) return "";
   try {
-    const u = new URL(origin);
-    return u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "::1";
+    const u = new URL(value);
+    return `${u.protocol}//${u.host}`; // protocol + host[:port] only
   } catch {
-    return false;
+    return String(value).replace(/\/+$/, "");
   }
+}
+
+function isAllowedOrigin(origin) {
+  // (1) Loopback always passes.
+  if (origin) {
+    try {
+      const u = new URL(origin);
+      if (
+        u.hostname === "localhost" ||
+        u.hostname === "127.0.0.1" ||
+        u.hostname === "::1"
+      ) {
+        return true;
+      }
+    } catch { /* malformed Origin — fall through to allowlist */ }
+  }
+
+  // (2) Build the allowlist from every URL the agent already knows about.
+  const allow = new Set();
+  for (const v of [ALLOWED_ORIGIN, AUTOPAIR_URL, HOST_PAGE_URL]) {
+    const n = _normalizeOriginValue(v);
+    if (n) allow.add(n);
+  }
+
+  // (3) Empty Origin (no header) — only OK if nothing is in the allowlist,
+  // matching the historical loopback-only default.
+  if (!origin) return allow.size === 0;
+
+  return allow.has(_normalizeOriginValue(origin));
 }
 
 // ---------------------------------------------------------------------------

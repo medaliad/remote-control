@@ -684,19 +684,33 @@ export function HostPage({ embed = false, autoPairToken = null }: HostProps = {}
                 </strong>
                 {agentStatus === "down" && (
                   <div className="mt-1.5 text-[12.5px] sm:text-[13px] leading-relaxed text-amber-700/90">
-                    Open a terminal in the{" "}
-                    <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                      agent/
-                    </code>{" "}
-                    folder and run{" "}
-                    <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                      npm start
-                    </code>
-                    , or double-click{" "}
-                    <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                      start-host.bat
-                    </code>{" "}
-                    from the project root.
+                    The local helper isn’t reachable on this PC. Two things
+                    to check:
+                    <ol className="list-decimal pl-5 mt-1.5 space-y-0.5">
+                      <li>
+                        This page must be open on the <em>same</em> computer
+                        you want controlled. The helper only listens on{" "}
+                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
+                          ws://127.0.0.1:8766
+                        </code>
+                        , which is local to one machine.
+                      </li>
+                      <li>
+                        Install or restart the helper: open the{" "}
+                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
+                          agent
+                        </code>{" "}
+                        folder on this PC and double-click{" "}
+                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
+                          Setup.cmd
+                        </code>
+                        . If it’s already installed, run{" "}
+                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
+                          Diagnose.cmd
+                        </code>{" "}
+                        for a one-screen status check.
+                      </li>
+                    </ol>
                   </div>
                 )}
               </div>

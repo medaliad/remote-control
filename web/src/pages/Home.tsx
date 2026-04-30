@@ -1,27 +1,16 @@
 import { MonitorPlay, Eye, Shield, ArrowRight, Sparkles } from "lucide-react";
-
 interface Props {
   navigate: (to: "home" | "host" | "client") => void;
-  /** When true, render with no card chrome and centered for iframe embedding. */
   embed?: boolean;
 }
-
-/**
- * Landing screen. Two actions — be the host, or join as a client. That's
- * the whole decision, so we make it visually primary and skip the nav bar
- * repetition.
- */
-export function Home({ navigate, embed = false }: Props) {
-  return (
-    <div
-      className={[
-        "w-full max-w-5xl animate-slide-up px-3 sm:px-0",
-        embed ? "m-auto" : "",
-      ].join(" ")}
-    >
-      {/* Hero card — VE Admin: white surface, hairline border, soft shadow. */}
+export function Home({
+  navigate,
+  embed = false
+}: Props) {
+  return <div className={["w-full max-w-5xl animate-slide-up px-3 sm:px-0", embed ? "m-auto" : ""].join(" ")}>
+      {}
       <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-white border border-line shadow-soft-xl p-6 sm:p-8 md:p-12">
-        {/* Subtle dot pattern */}
+        {}
         <div className="absolute inset-0 bg-dots opacity-50 pointer-events-none" />
 
         <div className="relative">
@@ -45,11 +34,10 @@ export function Home({ navigate, embed = false }: Props) {
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-5">
-            <a
-              className="group relative flex flex-col gap-2 sm:gap-3 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-line bg-white transition-all duration-300 hover:border-primary/40 hover:-translate-y-1 hover:shadow-glow overflow-hidden"
-              href="#/host"
-              onClick={(e) => { e.preventDefault(); navigate("host"); }}
-            >
+            <a className="group relative flex flex-col gap-2 sm:gap-3 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-line bg-white transition-all duration-300 hover:border-primary/40 hover:-translate-y-1 hover:shadow-glow overflow-hidden" href="#/host" onClick={e => {
+            e.preventDefault();
+            navigate("host");
+          }}>
               <div className="relative flex items-start justify-between">
                 <span className="inline-flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary-soft border border-primary/20 text-primary group-hover:scale-110 transition-transform duration-300">
                   <MonitorPlay className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={2.2} />
@@ -65,11 +53,10 @@ export function Home({ navigate, embed = false }: Props) {
               </span>
             </a>
 
-            <a
-              className="group relative flex flex-col gap-2 sm:gap-3 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-line bg-white transition-all duration-300 hover:border-primary/40 hover:-translate-y-1 hover:shadow-glow overflow-hidden"
-              href="#/client"
-              onClick={(e) => { e.preventDefault(); navigate("client"); }}
-            >
+            <a className="group relative flex flex-col gap-2 sm:gap-3 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-line bg-white transition-all duration-300 hover:border-primary/40 hover:-translate-y-1 hover:shadow-glow overflow-hidden" href="#/client" onClick={e => {
+            e.preventDefault();
+            navigate("client");
+          }}>
               <div className="relative flex items-start justify-between">
                 <span className="inline-flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary-soft border border-primary/20 text-primary group-hover:scale-110 transition-transform duration-300">
                   <Eye className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={2.2} />
@@ -99,6 +86,5 @@ export function Home({ navigate, embed = false }: Props) {
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>;
 }

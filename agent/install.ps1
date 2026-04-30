@@ -30,10 +30,22 @@ param(
     # rollouts pushed via Intune / Group Policy / scripted onboarding.
     [string]$ServerUrl   = "",
     [string]$Username    = "",
+    # NOTE: $Password is plaintext. The GUI passes it once at install
+    # time, it's persisted into config.json under autopairPassword (per
+    # user, NTFS-acl'd to the user's profile), and that's what the agent
+    # reads on boot. Don't widen the surface area — never log it, never
+    # echo it back.
+    [string]$Password    = "",
     [string]$AllowedOrigin = "",
     # Non-interactive mode aborts (instead of prompting) if any required
     # value is still empty after parameter binding + env vars.
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    # Skip the final Start-ScheduledTask. Used by the GUI installer which
+    # wants to (a) finish writing config.json, (b) hard-kill any stale agent
+    # holding port 8766, then (c) start the task itself with a clean slate.
+    # Without this the GUI race-conditions against install.ps1's auto-start
+    # and a leftover node.exe can keep the old username live.
+    [switch]$NoStart
 )
 
 $ErrorActionPreference = "Stop"
@@ -170,6 +182,21 @@ $resolvedUrl  = Resolve-Value $ServerUrl     "autopairUrl"   "AUTOPAIR_URL"   "S
 $resolvedUser = Resolve-Value $Username      "autopairUser"  "AUTOPAIR_USER"  "Username to register as"        $env:USERNAME
 $resolvedOrig = Resolve-Value $AllowedOrigin "allowedOrigin" "ALLOWED_ORIGIN" "Allowed origin (leave default)" $resolvedUrl
 
+# Resolve the password the same way -- CLI > existing config > env. We
+# fall back to "" rather than prompting, because in -NonInteractive use
+# (the GUI installer's path) the password is always supplied as a CLI
+# arg; for unattended IT installs we'd rather record an empty password
+# than block on a hidden Read-Host.
+$resolvedPwd = ""
+if ($Password) {
+    $resolvedPwd = $Password
+} elseif ($existing.ContainsKey("autopairPassword") -and $existing["autopairPassword"]) {
+    $resolvedPwd = [string]$existing["autopairPassword"]
+} else {
+    $envPwd = [Environment]::GetEnvironmentVariable("AUTOPAIR_PASSWORD", "Process")
+    if ($envPwd) { $resolvedPwd = $envPwd }
+}
+
 # Normalize the username to the same canonical form the server uses
 # (trimmed + lower-cased). The server's lookupAgent() and the VE Admin
 # Flutter app both call .trim().toLowerCase() on usernames, so writing
@@ -179,13 +206,20 @@ $resolvedUser = $resolvedUser.Trim().ToLower()
 
 # Preserve fields we didn't touch (e.g. autopairAgentId set on first run).
 $config = $existing.Clone()
-$config.autopairUrl    = $resolvedUrl
-$config.autopairUser   = $resolvedUser
-$config.allowedOrigin  = $resolvedOrig
+$config.autopairUrl      = $resolvedUrl
+$config.autopairUser     = $resolvedUser
+$config.autopairPassword = $resolvedPwd
+$config.allowedOrigin    = $resolvedOrig
 $config | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigPath -Encoding UTF8
 
 Write-Host ("      autopairUrl  = {0}" -f $resolvedUrl)
 Write-Host ("      autopairUser = {0}" -f $resolvedUser)
+# Don't echo the password literal — only that it's present + length.
+if ($resolvedPwd) {
+    Write-Host ("      autopairPassword = ({0} chars, hidden)" -f $resolvedPwd.Length)
+} else {
+    Write-Host  "      autopairPassword = (empty)"
+}
 Write-Host ("      allowedOrigin= {0}" -f $resolvedOrig)
 Write-Host ("      written to   {0}" -f $ConfigPath)
 
@@ -246,9 +280,10 @@ try {
   `$cfgPath = Join-Path `$PSScriptRoot 'config.json'
   if (Test-Path `$cfgPath) {
     `$cfg = Get-Content -Raw -Path `$cfgPath | ConvertFrom-Json
-    if (`$cfg.autopairUrl)   { `$env:AUTOPAIR_URL   = `$cfg.autopairUrl }
-    if (`$cfg.autopairUser)  { `$env:AUTOPAIR_USER  = `$cfg.autopairUser }
-    if (`$cfg.allowedOrigin) { `$env:ALLOWED_ORIGIN = `$cfg.allowedOrigin }
+    if (`$cfg.autopairUrl)      { `$env:AUTOPAIR_URL      = `$cfg.autopairUrl }
+    if (`$cfg.autopairUser)     { `$env:AUTOPAIR_USER     = `$cfg.autopairUser }
+    if (`$cfg.autopairPassword) { `$env:AUTOPAIR_PASSWORD = `$cfg.autopairPassword }
+    if (`$cfg.allowedOrigin)    { `$env:ALLOWED_ORIGIN    = `$cfg.allowedOrigin }
   }
 } catch {
   Write-Output ("[run-agent] could not load config.json: " + `$_.Exception.Message)
@@ -293,9 +328,16 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 # Kick it off right now so the install is functional without a logout.
-Start-ScheduledTask -TaskName $TaskName | Out-Null
-
-Write-Host ("      task registered as '{0}' and started." -f $TaskName) -ForegroundColor Green
+# When invoked from the GUI installer with -NoStart, the GUI takes care of
+# starting the task itself once it's done writing config.json + killing
+# any stale node.exe holding port 8766. Auto-starting here on top of that
+# would race the GUI's start.
+if (-not $NoStart) {
+    Start-ScheduledTask -TaskName $TaskName | Out-Null
+    Write-Host ("      task registered as '{0}' and started." -f $TaskName) -ForegroundColor Green
+} else {
+    Write-Host ("      task registered as '{0}' (start deferred to caller)." -f $TaskName) -ForegroundColor Green
+}
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Green

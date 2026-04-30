@@ -9,7 +9,7 @@ Begin VB.Form Form1
    LinkTopic       =   "Form1"
    ScaleHeight     =   3600
    ScaleWidth      =   6720
-   StartUpPosition =   3  'Windows Default
+   StartUpPosition =   3
    Begin MSWinsockLib.Winsock sockListener
       Left            =   120
       Top             =   120
@@ -38,8 +38,8 @@ Begin VB.Form Form1
    Begin VB.TextBox txtLog
       Height          =   2775
       Left            =   120
-      MultiLine       =   -1  'True
-      ScrollBars      =   2  'Vertical
+      MultiLine       =   -1
+      ScrollBars      =   2
       TabIndex        =   1
       Top             =   720
       Width           =   6495
@@ -58,25 +58,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
-'---------------------------------------------------------------------------
-' MouseControl.frm
-'
-' Local listener for browser-originated mouse commands. The Node.js bridge
-' (agent/agent.js) opens one TCP connection here on 127.0.0.1:8765 and
-' streams newline-delimited commands:
-'
-'   MOVE <nx> <ny>        -- nx,ny are floats 0..1 relative to the viewer's
-'                            <video> element (scaled to primary screen)
-'   DOWN <button>         -- button: 0=left, 1=middle, 2=right
-'   UP <button>
-'   CLICK <button>
-'   SCROLL <delta>        -- integer; positive = scroll up
-'   PING                  -- reply with "PONG\n"
-'
-' Replies are line-delimited as well ("OK\n" / "ERR <reason>\n").
-'
-' Safety: we bind to 127.0.0.1 only, so nothing off-box can drive the mouse.
-'---------------------------------------------------------------------------
+
 Option Explicit
 
 Private recvBuffer As String
@@ -101,10 +83,6 @@ Private Sub cmdStop_Click()
     LogLine "Listener stopped."
 End Sub
 
-'---------------------------------------------------------------------------
-' Accept a single bridge connection at a time. If something is already in,
-' reject newcomers -- we don't want two agents fighting for the mouse.
-'---------------------------------------------------------------------------
 Private Sub sockListener_ConnectionRequest(ByVal requestID As Long)
     If sockClient.State <> sckClosed Then sockClient.Close
     sockClient.Accept requestID
@@ -125,7 +103,6 @@ Private Sub sockClient_DataArrival(ByVal bytesTotal As Long)
     sockClient.GetData chunk, vbString
     recvBuffer = recvBuffer & chunk
 
-    ' Process complete lines only; leave any trailing partial in the buffer.
     Dim nlPos As Long
     Do
         nlPos = InStr(recvBuffer, vbLf)
@@ -138,10 +115,6 @@ Private Sub sockClient_DataArrival(ByVal bytesTotal As Long)
     Loop
 End Sub
 
-'---------------------------------------------------------------------------
-' Command dispatcher. Wrapped in On Error so a malformed line never takes
-' the whole agent down; we just log and keep going.
-'---------------------------------------------------------------------------
 Private Sub HandleCommand(ByVal cmdLine As String)
     On Error GoTo failed
 
@@ -163,9 +136,7 @@ Private Sub HandleCommand(ByVal cmdLine As String)
             ClickButton ParseButton(parts)
         Case "SCROLL"
             If UBound(parts) < 1 Then Err.Raise 5, , "SCROLL needs delta"
-            ' Browser WheelEvent.deltaY is positive when scrolling *down*;
-            ' Windows MOUSEEVENTF_WHEEL expects positive when scrolling UP.
-            ' Flip the sign here.
+
             ScrollWheel -CLng(CDbl(parts(1)))
         Case "PING"
             Reply "PONG"

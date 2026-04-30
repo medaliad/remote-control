@@ -21,9 +21,32 @@ $ProgramName = "VEAdminAgent"
 $InstallDir  = Join-Path $env:LOCALAPPDATA $ProgramName
 $ConfigPath  = Join-Path $InstallDir       "config.json"
 $TaskName    = $ProgramName
+$AgentPort   = 8766
 
 Write-Host ""
 Write-Host "Uninstalling $ProgramName..." -ForegroundColor Cyan
+
+# 0. Kill anything still holding the agent's port + any stale node.exe /
+#    powershell.exe whose command line points at the agent. Without this
+#    a still-running agent can keep its autopair WS open under the OLD
+#    username (and lock files in $InstallDir, breaking step 2).
+Write-Host "  - killing port $AgentPort + stale agent processes..."
+$conns = Get-NetTCPConnection -LocalPort $AgentPort -State Listen -ErrorAction SilentlyContinue
+if ($conns) {
+    foreach ($c in $conns) {
+        try { Stop-Process -Id $c.OwningProcess -Force -ErrorAction Stop } catch { }
+    }
+}
+$staleProcs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -in @('node.exe','powershell.exe','pwsh.exe') } |
+    Where-Object {
+        $cl = [string]$_.CommandLine
+        ($cl -match 'VEAdminAgent') -or ($cl -match 'run-agent\.ps1')
+    }
+foreach ($p in $staleProcs) {
+    try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { }
+}
+Start-Sleep -Milliseconds 500
 
 # 1. Scheduled Task -- `-ErrorAction SilentlyContinue` so a partial install
 #    (no task) doesn't leave us in a broken state.

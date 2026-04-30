@@ -2,10 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Match the VE Admin Flutter app: Barlow as the global UI font.
- * JetBrains Mono is kept for the rare `font-mono` spots (session code etc.).
- */
 @import url("https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap");
 
 @layer base {

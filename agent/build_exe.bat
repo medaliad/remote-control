@@ -1,9 +1,8 @@
 @echo off
 REM Build "VE Admin Remote Controller.exe" from installer_gui.py.
 REM
-REM Run this on a Windows machine, in the agent folder (the one that contains
-REM install.ps1, agent.js, package.json, node_modules, etc.). It bundles all
-REM the agent files into a single self-contained .exe.
+REM Run this on a Windows PC (in the agent folder containing install.ps1
+REM and node_modules). Requires Python 3 on PATH (or via the `py` launcher).
 REM
 REM Output: dist\VE Admin Remote Controller.exe
 
@@ -27,7 +26,6 @@ if "%PY%"=="" (
     echo.
     echo   Install Python 3 from https://www.python.org/downloads/
     echo   IMPORTANT: tick the "Add python.exe to PATH" checkbox during install.
-    echo   Then close this window, open a new Command Prompt, and run build_exe.bat again.
     echo.
     pause
     exit /b 1
@@ -36,11 +34,16 @@ echo [info] using Python launcher: %PY%
 %PY% --version
 echo.
 
-REM ---- sanity: required files next to this script ----
-for %%F in (installer_gui.py icon.ico install.ps1 agent.js package.json) do (
+REM ---- sanity: required source files next to this script ----
+REM virtual_eye_logo.png is the wordmark we render in the installer's
+REM hero band -- the same logo the Flutter app shows on its login. Missing
+REM it isn't fatal at runtime (the GUI falls back to a text wordmark) but
+REM we want the build to fail loudly so the shipped EXE always carries it
+REM when it's available in the source tree.
+for %%F in (installer_gui.py icon.ico install.ps1 agent.js package.json virtual_eye_logo.png) do (
     if not exist "%~dp0%%F" (
         echo [error] %%F is missing from this folder.
-        echo         Run build_exe.bat from the agent folder that contains all the source files.
+        echo         Run build_exe.bat from the agent folder containing install.ps1.
         pause
         exit /b 1
     )
@@ -49,9 +52,8 @@ for %%F in (installer_gui.py icon.ico install.ps1 agent.js package.json) do (
 echo [..] installing PyInstaller...
 %PY% -m pip install --upgrade --quiet pyinstaller
 if errorlevel 1 (
-    echo [error] pip install pyinstaller failed.
+    echo [error] pip install failed.
     echo         Try running:  %PY% -m pip install --upgrade pip
-    echo         then re-run this script.
     pause
     exit /b 1
 )
@@ -62,12 +64,16 @@ echo        package-lock.json, node_modules, helper scripts)
 echo.
 
 REM ---- build the --add-data list dynamically so optional files don't fail ----
+REM virtual_eye_logo.png is required (sanity-checked above); logo02.png is
+REM bundled if present so dev builds with only the older mark still work.
 set ADD=--add-data "icon.ico;." ^
+        --add-data "virtual_eye_logo.png;." ^
         --add-data "install.ps1;." ^
         --add-data "agent.js;." ^
         --add-data "package.json;." ^
         --add-data "package-lock.json;." ^
         --add-data "node_modules;node_modules"
+if exist "%~dp0logo02.png"              set ADD=!ADD! --add-data "logo02.png;."
 if exist "%~dp0uninstall.ps1"           set ADD=!ADD! --add-data "uninstall.ps1;."
 if exist "%~dp0start-agent.cmd"         set ADD=!ADD! --add-data "start-agent.cmd;."
 if exist "%~dp0start-agent-hidden.vbs"  set ADD=!ADD! --add-data "start-agent-hidden.vbs;."
@@ -92,10 +98,12 @@ echo [done] Built: dist\VE Admin Remote Controller.exe
 echo.
 echo Copy that single .exe to any Windows PC and double-click it.
 echo It will:
-echo   * pre-clean port 8766
+echo   * ask for a username (pre-filled with the OS username or last saved)
+echo   * ask for a password (masked, persisted per-user)
+echo     -- the signaling server URL is fixed and shown read-only
+echo   * pre-clean port 8766 and the old VEAdminAgent task
 echo   * install Node.js LTS via winget if missing
-echo   * ask for the username
-echo   * run install.ps1 and start the agent
+echo   * run install.ps1 with -Username and -Password from the form
 echo   * register the VEAdminAgent task to auto-start on every login
 echo.
 pause

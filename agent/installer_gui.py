@@ -1,76 +1,69 @@
-#!/usr/bin/env python3
 """
-VE Admin Remote Controller - one-click installer (Tkinter GUI).
+VE Admin Remote Controller - one-click installer (Tkinter GUI), v5.
 
-What is new in this version (v3):
-  * Pairing-code flow. The installer shows an 8-character code on launch
-    and polls the signaling server. The admin opens a small browser page,
-    types the same code plus the username this PC should register as,
-    and clicks Send. The server relays the username back to this
-    installer, which then auto-fills the field, persists the username to
-    HKCU\\Software\\VEAdminAgent\\Username and config.json, and re-runs
-    install.ps1. If the agent was already installed under a different
-    username the scheduled task is replaced and re-registered.
+Flow:
+  1. Asks for a username (pre-filled with the OS user or last saved value).
+  2. Pre-cleans port 8766 + any old VEAdminAgent task.
+  3. Installs Node.js LTS via winget if missing.
+  4. Calls install.ps1 to copy files, run npm install, and register the
+     scheduled task.
+  5. Writes config.json directly with autopairUrl/autopairUser - belt and
+     braces in case install.ps1 silently dropped a value - and verifies
+     the file before declaring success.
+  6. Saves the username to HKCU\\Software\\VEAdminAgent\\Username so the
+     next run pre-fills it.
 
-The user can still type a username manually instead of waiting for the
-browser hand-off.
+Mirrors the manual flow that's known to work:
+    $env:AUTOPAIR_URL  = "https://remote-control-cdqo.onrender.com"
+    $env:AUTOPAIR_USER = "dali"
+    npm install
+    npm start
 
-Buttons:
-  * Install   - runs the install.ps1 flow with the current Username.
-  * Stop      - stops the VEAdminAgent scheduled task and frees port 8766.
-  * Uninstall - runs uninstall.ps1.
-
-Build to a .exe:  build_exe.bat
+Build: build_exe.bat
 """
 
-import os
 import json
-import platform
+import os
 import queue
-import secrets
 import shutil
-import string
 import subprocess
 import sys
 import threading
-import time
 import tkinter as tk
-import urllib.error
-import urllib.request
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
-# --------------------------------------------------------------------------- #
-# Distribution constants
-# --------------------------------------------------------------------------- #
+APP_TITLE        = "VE Admin Remote Controller"
+TASK_NAME        = "VEAdminAgent"
+INSTALL_FOLDER   = "VEAdminAgent"
+AGENT_PORT       = 8766
+DEFAULT_URL      = "https://remote-control-cdqo.onrender.com"
+LEGACY_SHORTCUT  = r"Microsoft\Windows\Start Menu\Programs\Startup\Remote Control Agent.lnk"
+REGISTRY_KEY     = r"Software\VEAdminAgent"
 
-APP_TITLE       = "VE Admin Remote Controller"
-TASK_NAME       = "VEAdminAgent"
-INSTALL_FOLDER  = "VEAdminAgent"
-AGENT_PORT      = 8766
-SERVER_URL      = "https://remote-control-cdqo.onrender.com"
-ALLOWED_ORIGIN  = SERVER_URL
-LEGACY_SHORTCUT = r"Microsoft\Windows\Start Menu\Programs\Startup\Remote Control Agent.lnk"
-PROVISION_POLL_SEC  = 3
-PROVISION_TIMEOUT_SEC = 15 * 60
-REGISTRY_KEY = r"Software\VEAdminAgent"
 
-DESCRIPTION = (
-    "VE Admin Remote Controller\n\n"
-    "Type the username this PC should register as and click Install, OR\n"
-    "open the VE Admin browser provisioning page, type the pairing code\n"
-    "shown below, and the username will arrive automatically."
+BRAND_PRIMARY_DARK = "#013059"
+BRAND_ACCENT       = "#008BF9"
+BRAND_BLUE         = "#209BD7"
+BRAND_BLUE_LIGHT   = "#09BCFF"
+BG_CANVAS          = "#F8FAFC"
+SURFACE            = "#FFFFFF"
+TEXT_900           = "#0F172A"
+TEXT_700           = "#334155"
+TEXT_500           = "#64748B"
+TEXT_400           = "#94A3B8"
+LINE               = "#E2E8F0"
+
+HEADING  = "Connect Your PC to VE Admin for Remote Support"
+SUBTITLE = (
+   "Enter the username and password for this machine. The installer will automatically set up everything needed. After clicking Start, your manager can securely access and control your PC remotely to help monitor and fix any PMC-related issues."
 )
 
 IS_WIN = sys.platform.startswith("win")
 NO_WIN = 0x08000000 if IS_WIN else 0
 
 
-# --------------------------------------------------------------------------- #
-# Resource locator (handles dev mode + PyInstaller _MEIPASS)
-# --------------------------------------------------------------------------- #
-
-def resource_dir():
+def resource_dir() -> Path:
     base = getattr(sys, "_MEIPASS", None)
     if base:
         return Path(base)
@@ -87,79 +80,121 @@ def find_icon():
     return None
 
 
-# --------------------------------------------------------------------------- #
-# Paths + helpers
-# --------------------------------------------------------------------------- #
+def find_logo():
+    """Locate the brand logo PNG to display at the top of the installer.
+    Preference order:
+      1. virtual_eye_logo.png — the wordmark from veadmin_new's login
+         (white-on-transparent so it composites on the dark blue header).
+      2. logo02.png — older PMC mark, fallback for older builds.
+    Falling back to None just hides the image band; the rest of the
+    layout still renders with a text title."""
+    candidates = [
+        resource_dir() / "virtual_eye_logo.png",
+        resource_dir() / "logo02.png",
+        resource_dir() / "logo.png",
+        Path.cwd() / "virtual_eye_logo.png",
+        Path.cwd() / "logo02.png",
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return p
+        except Exception:
+            pass
+    return None
 
-def have(exe):
-    return shutil.which(exe) is not None
 
-
-def install_dir():
+def install_dir() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
     return base / INSTALL_FOLDER
 
 
-def windows_username():
-    return os.environ.get("USERNAME") or os.environ.get("USER") or ""
+def have(exe: str) -> bool:
+    return shutil.which(exe) is not None
 
 
-def saved_username_from_config():
-    cfg = install_dir() / "config.json"
-    if not cfg.exists():
-        return ""
-    try:
-        return str(json.loads(cfg.read_text(encoding="utf-8-sig")).get("autopairUser") or "")
-    except Exception:
-        return ""
+def normalize_username(name: str) -> str:
+    """Server stores agents under .trim().toLowerCase(); match here so the
+    value we save is the canonical form the manager will look up."""
+    return (name or "").strip().lower()
 
 
-def saved_username_from_registry():
+def _read_registry_value(value_name: str) -> str:
+    """Read a single string value from HKCU\\Software\\VEAdminAgent.
+    Returns "" if Windows isn't available, the key doesn't exist, or the
+    value is missing. Used for both Username and Password — the latter is
+    stored as plaintext in HKCU only (per-user hive, not readable by other
+    users on the box). Don't move this to HKLM unless we encrypt it."""
     if not IS_WIN:
         return ""
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as k:
-            v, _ = winreg.QueryValueEx(k, "Username")
+            v, _ = winreg.QueryValueEx(k, value_name)
             return str(v or "")
     except Exception:
         return ""
 
 
-def write_username_registry(name):
+def _write_registry_value(value_name: str, value: str) -> None:
     if not IS_WIN:
         return
     try:
         import winreg
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as k:
-            winreg.SetValueEx(k, "Username", 0, winreg.REG_SZ, name)
+            winreg.SetValueEx(k, value_name, 0, winreg.REG_SZ, value)
     except Exception:
         pass
 
 
-def gen_pairing_code():
-    # 8 chars from a no-look-alike alphabet - admin will type this in.
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    return "".join(secrets.choice(alphabet) for _ in range(8))
+def saved_username_from_registry() -> str:
+    return _read_registry_value("Username")
 
 
-# --------------------------------------------------------------------------- #
-# GUI app
-# --------------------------------------------------------------------------- #
+def saved_password_from_registry() -> str:
+    return _read_registry_value("Password")
+
+
+def saved_username_from_config() -> str:
+    cfg = install_dir() / "config.json"
+    try:
+        return str(json.loads(cfg.read_text(encoding="utf-8")).get("autopairUser") or "")
+    except Exception:
+        return ""
+
+
+def saved_password_from_config() -> str:
+    cfg = install_dir() / "config.json"
+    try:
+        return str(json.loads(cfg.read_text(encoding="utf-8")).get("autopairPassword") or "")
+    except Exception:
+        return ""
+
+
+def write_username_registry(name: str) -> None:
+    _write_registry_value("Username", name)
+
+
+def write_password_registry(password: str) -> None:
+    _write_registry_value("Password", password)
+
+
+def os_username_default() -> str:
+    return (os.environ.get("USERNAME") or os.environ.get("USER") or "").strip()
+
 
 class InstallerApp:
     def __init__(self, root):
         self.root = root
         self.log_queue = queue.Queue()
         self.worker = None
-        self.pair_code = gen_pairing_code()
-        self.pair_thread = None
-        self.pair_stop = threading.Event()
-        self.pair_received_user = None  # set by polling thread
 
         root.title(APP_TITLE)
-        root.geometry("760x620")
-        root.minsize(640, 480)
+
+
+        root.geometry("620x680")
+        root.minsize(560, 620)
+        root.configure(bg=BG_CANVAS)
 
         ico = find_icon()
         if ico is not None:
@@ -168,84 +203,263 @@ class InstallerApp:
             except Exception:
                 pass
 
-        # ---- Description ----
+
+        base_family = "Segoe UI" if IS_WIN else "Helvetica"
+
+
+        self._font_h1   = (base_family, 22, "bold")
+        self._font_body = (base_family, 11)
+        self._font_lbl  = (base_family, 8, "bold")
+        self._font_btn  = (base_family, 11, "bold")
+        self._font_sub  = (base_family, 10)
+        self._font_micro = (base_family, 9)
+
+
+        style = ttk.Style(root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+
+        style.configure(
+            "Brand.TButton",
+            background=BRAND_ACCENT, foreground="#FFFFFF",
+            font=self._font_btn, borderwidth=0, focusthickness=0,
+            padding=(24, 12),
+        )
+        style.map(
+            "Brand.TButton",
+            background=[("active", BRAND_PRIMARY_DARK), ("disabled", "#9CC2E5")],
+            foreground=[("disabled", "#E2E8F0")],
+        )
+
+
+        style.configure(
+            "Ghost.TButton",
+            background=SURFACE, foreground=TEXT_700,
+            font=self._font_body, borderwidth=1, relief="solid",
+            padding=(16, 10),
+        )
+        style.map(
+            "Ghost.TButton",
+            background=[("active", "#F1F5F9"), ("disabled", "#F8FAFC")],
+            foreground=[("disabled", "#94A3B8")],
+            bordercolor=[("active", BRAND_BLUE), ("!active", LINE)],
+        )
+
+
+        style.configure(
+            "Brand.TEntry",
+            fieldbackground="#FFFFFF", foreground=TEXT_900,
+            bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
+            padding=10, relief="flat",
+        )
+        style.map(
+            "Brand.TEntry",
+            bordercolor=[("focus", BRAND_BLUE)],
+            lightcolor=[("focus", BRAND_BLUE)],
+            darkcolor=[("focus", BRAND_BLUE)],
+        )
+
+
+        style.configure(
+            "Brand.TCheckbutton",
+            background=SURFACE, foreground=TEXT_500, font=self._font_micro,
+        )
+        style.map("Brand.TCheckbutton",
+                  background=[("active", SURFACE)],
+                  foreground=[("active", BRAND_BLUE)])
+
+
+        outer = tk.Frame(root, bg=BG_CANVAS)
+        outer.pack(fill="both", expand=True)
+
+
+        logo_path = find_logo()
+        self._logo_image = None
+        if logo_path is not None:
+            try:
+                img = tk.PhotoImage(file=str(logo_path))
+
+
+                w = img.width()
+                if w > 240:
+                    factor = max(1, w // 180)
+                    img = img.subsample(factor, factor)
+                self._logo_image = img
+            except Exception:
+                self._logo_image = None
+
+        hero = tk.Frame(outer, bg=BRAND_PRIMARY_DARK, height=130)
+        hero.pack(fill="x")
+        hero.pack_propagate(False)
+        if self._logo_image is not None:
+            tk.Label(
+                hero, image=self._logo_image,
+                bg=BRAND_PRIMARY_DARK, bd=0,
+            ).pack(expand=True)
+        else:
+
+            tk.Label(
+                hero, text="virtual eye",
+                bg=BRAND_PRIMARY_DARK, fg="#FFFFFF",
+                font=(base_family, 22, "bold"),
+            ).pack(expand=True)
+
+
+        tk.Frame(outer, bg=BRAND_ACCENT, height=2).pack(fill="x")
+
+
+        card_wrap = tk.Frame(outer, bg=BG_CANVAS)
+        card_wrap.pack(fill="both", expand=True, padx=32, pady=(28, 24))
+
+        card = tk.Frame(card_wrap, bg=SURFACE, highlightthickness=1,
+                        highlightbackground=LINE)
+        card.pack(fill="both", expand=True)
+
+        inner = tk.Frame(card, bg=SURFACE)
+        inner.pack(fill="both", expand=True, padx=36, pady=32)
+
+
         tk.Label(
-            root, text=DESCRIPTION, justify="left", anchor="w",
-            wraplength=720, padx=12, pady=10,
+            inner, text=HEADING, bg=SURFACE, fg=BRAND_PRIMARY_DARK,
+            font=self._font_h1, anchor="w", justify="left",
         ).pack(fill="x")
+        tk.Label(
+            inner, text=SUBTITLE, bg=SURFACE, fg=TEXT_500,
+            font=self._font_sub, anchor="w", justify="left",
+            wraplength=480,
+        ).pack(fill="x", pady=(8, 24))
 
-        # ---- Pairing code panel ----
-        pair = tk.Frame(root, padx=12, pady=8, bg="#0c2a4a")
-        pair.pack(fill="x", padx=12)
-        tk.Label(
-            pair, text="Pairing code (type this in the browser provisioning page):",
-            bg="#0c2a4a", fg="#cfe6ff", anchor="w",
-        ).pack(anchor="w")
-        self.pair_var = tk.StringVar(value=self._formatted_code())
-        tk.Label(
-            pair, textvariable=self.pair_var, bg="#0c2a4a", fg="#ffffff",
-            font=("Consolas" if IS_WIN else "Menlo", 22, "bold"),
-            anchor="w",
-        ).pack(anchor="w", pady=(2, 4))
-        self.pair_status = tk.StringVar(value="Waiting for browser...")
-        tk.Label(
-            pair, textvariable=self.pair_status,
-            bg="#0c2a4a", fg="#9ec5ee", anchor="w",
-        ).pack(anchor="w")
 
-        # ---- Username row ----
-        urow = tk.Frame(root)
-        urow.pack(fill="x", padx=12, pady=(8, 6))
-        tk.Label(urow, text="Username:", width=10, anchor="w").pack(side="left")
-        initial_user = (
+        tk.Label(
+            inner, text="USERNAME", bg=SURFACE, fg=TEXT_500,
+            font=self._font_lbl, anchor="w",
+        ).pack(fill="x")
+        prefilled_user = (
             saved_username_from_registry()
             or saved_username_from_config()
-            or windows_username()
+            or os_username_default()
         )
-        self.user_var = tk.StringVar(value=initial_user)
-        self.user_entry = ttk.Entry(urow, textvariable=self.user_var)
-        self.user_entry.pack(side="left", fill="x", expand=True)
+        self.user_var = tk.StringVar(value=prefilled_user)
+        self.user_entry = ttk.Entry(
+            inner, textvariable=self.user_var, style="Brand.TEntry",
+            font=self._font_body,
+        )
 
-        # ---- Buttons ----
-        bar = tk.Frame(root)
-        bar.pack(fill="x", padx=12)
-        self.btn_install = ttk.Button(bar, text="Install", command=self.on_install)
+
+        self.user_entry.pack(fill="x", pady=(8, 6), ipady=6)
+        tk.Label(
+            inner,
+            text="Lowercased automatically. The manager looks up this name to open a session.",
+            bg=SURFACE, fg=TEXT_400, font=self._font_micro,
+            anchor="w", justify="left",
+        ).pack(fill="x", pady=(0, 18))
+
+
+        pwd_header = tk.Frame(inner, bg=SURFACE)
+        pwd_header.pack(fill="x")
+        tk.Label(
+            pwd_header, text="PASSWORD", bg=SURFACE, fg=TEXT_500,
+            font=self._font_lbl, anchor="w",
+        ).pack(side="left")
+        self._pwd_visible = tk.BooleanVar(value=False)
+        def _toggle_pwd():
+            self.pwd_entry.configure(show="" if self._pwd_visible.get() else "*")
+        ttk.Checkbutton(
+            pwd_header, text="Show", variable=self._pwd_visible,
+            command=_toggle_pwd, style="Brand.TCheckbutton",
+        ).pack(side="right")
+
+        prefilled_pwd = (
+            saved_password_from_registry()
+            or saved_password_from_config()
+        )
+        self.pwd_var = tk.StringVar(value=prefilled_pwd)
+        self.pwd_entry = ttk.Entry(
+            inner, textvariable=self.pwd_var, show="*",
+            style="Brand.TEntry", font=self._font_body,
+        )
+
+
+        self.pwd_entry.pack(fill="x", pady=(8, 28), ipady=6)
+
+
+        self.url_var = tk.StringVar(value=DEFAULT_URL)
+
+
+        bar = tk.Frame(inner, bg=SURFACE)
+        bar.pack(fill="x")
+        self.btn_install = ttk.Button(
+            bar, text="Start", command=self.on_install,
+            style="Brand.TButton",
+        )
         self.btn_install.pack(side="left")
         self.btn_stop = ttk.Button(
-            bar, text="Stop", command=self.on_stop, state="disabled"
+            bar, text="Stop", command=self.on_stop, state="disabled",
+            style="Ghost.TButton",
         )
-        self.btn_stop.pack(side="left", padx=6)
+        self.btn_stop.pack(side="left", padx=(8, 0))
         self.btn_uninstall = ttk.Button(
-            bar, text="Uninstall", command=self.on_uninstall
+            bar, text="Uninstall", command=self.on_uninstall,
+            style="Ghost.TButton",
         )
         self.btn_uninstall.pack(side="right")
 
-        # ---- Log ----
-        self.log_widget = scrolledtext.ScrolledText(
-            root, height=16, wrap="word", state="disabled",
-            bg="#111", fg="#ddd", insertbackground="#ddd",
-            font=("Consolas" if IS_WIN else "Menlo", 10),
-        )
-        self.log_widget.pack(fill="both", expand=True, padx=12, pady=10)
 
-        # ---- Status bar ----
         self.status = tk.StringVar(value="Idle.")
         tk.Label(
-            root, textvariable=self.status, anchor="w", relief="sunken",
-        ).pack(fill="x", side="bottom")
+            inner, textvariable=self.status, bg=SURFACE, fg=TEXT_500,
+            font=self._font_sub, anchor="w",
+        ).pack(fill="x", pady=(14, 0))
+
+
+        self._log_visible = tk.BooleanVar(value=False)
+
+        details_row = tk.Frame(inner, bg=SURFACE)
+        details_row.pack(fill="x", pady=(8, 0))
+        self._details_btn = ttk.Checkbutton(
+            details_row, text="Show details", variable=self._log_visible,
+            command=self._toggle_log, style="Brand.TCheckbutton",
+        )
+        self._details_btn.pack(side="left")
+
+        self._log_holder = tk.Frame(inner, bg=SURFACE)
+
+        self.log_widget = scrolledtext.ScrolledText(
+            self._log_holder, height=10, wrap="word", state="disabled",
+            bg="#0F172A", fg="#E2E8F0", insertbackground="#E2E8F0",
+            font=("Consolas" if IS_WIN else "Menlo", 9),
+            borderwidth=0, highlightthickness=1, highlightbackground=LINE,
+        )
+        self.log_widget.pack(fill="both", expand=True)
+
+        self.user_entry.bind("<Return>", lambda _e: self.on_install())
+        self.pwd_entry.bind("<Return>", lambda _e: self.on_install())
 
         self.root.after(100, self._drain_log)
         self._refresh_buttons()
 
-        # Fire off the pairing-code claim + polling loop in the background.
-        self._start_pairing()
+    def _toggle_log(self):
+        """Show/hide the dark log panel under the form. Hidden by default
+        so first-time installers see a clean three-field card; admins or
+        anyone debugging an install can flip it on. We also re-anchor the
+        toggle row so it sits flush with the bottom of the visible
+        content regardless of state."""
+        if self._log_visible.get():
+            self._log_holder.pack(fill="both", expand=True, pady=(8, 0))
 
-    def _formatted_code(self):
-        # Insert a hyphen for readability: ABCD-2345
-        c = self.pair_code
-        return f"{c[:4]}-{c[4:]}"
 
-    # ------- log plumbing -------
+            try:
+                cur_w = self.root.winfo_width()
+                cur_h = self.root.winfo_height()
+                if cur_h < 820:
+                    self.root.geometry(f"{max(cur_w, 560)}x820")
+            except Exception:
+                pass
+        else:
+            self._log_holder.pack_forget()
 
     def log(self, msg):
         self.log_queue.put(msg)
@@ -262,9 +476,23 @@ class InstallerApp:
             pass
         self.root.after(100, self._drain_log)
 
-    def _run_stream(self, cmd, cwd=None, shell=False):
+    def _run_stream(self, cmd, cwd=None, shell=False, hide_args=None):
+
+
+        hide_args = hide_args or set()
         if isinstance(cmd, (list, tuple)):
-            self.log("$ " + " ".join(str(c) for c in cmd))
+            display = []
+            i = 0
+            cmd_list = list(cmd)
+            while i < len(cmd_list):
+                tok = str(cmd_list[i])
+                display.append(tok)
+                if tok in hide_args and i + 1 < len(cmd_list):
+                    display.append("***")
+                    i += 2
+                    continue
+                i += 1
+            self.log("$ " + " ".join(display))
         else:
             self.log("$ " + str(cmd))
         proc = subprocess.Popen(
@@ -277,101 +505,40 @@ class InstallerApp:
         proc.wait()
         return proc.returncode
 
-    def _run_powershell(self, ps_args):
+    def _run_powershell(self, ps_args, hide_args=None):
         return self._run_stream(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass"] + ps_args
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass"] + ps_args,
+            hide_args=hide_args,
         )
-
-    # ------- pairing-code flow (HTTP polling) -------
-
-    def _start_pairing(self):
-        self.pair_thread = threading.Thread(target=self._pair_worker, daemon=True)
-        self.pair_thread.start()
-
-    def _pair_worker(self):
-        # 1) claim the code with the server
-        try:
-            self._http_post(
-                f"{SERVER_URL}/api/provision/claim",
-                {"code": self.pair_code},
-            )
-            self.log(f"[pair] claimed code {self._formatted_code()} on server")
-        except Exception as e:
-            self.log(f"[pair] could not claim code on server: {e}")
-            self.root.after(0, lambda: self.pair_status.set(
-                "Server unreachable - manual mode only."
-            ))
-            return
-
-        # 2) poll until either a username arrives or we time out
-        deadline = time.time() + PROVISION_TIMEOUT_SEC
-        while not self.pair_stop.is_set() and time.time() < deadline:
-            try:
-                resp = self._http_get(
-                    f"{SERVER_URL}/api/provision/poll?code={self.pair_code}"
-                )
-                user = (resp or {}).get("username")
-                if user:
-                    self.root.after(0, self._on_pair_received, str(user))
-                    return
-            except Exception as e:
-                # Don't spam the log on transient errors
-                pass
-            self.pair_stop.wait(PROVISION_POLL_SEC)
-
-        if not self.pair_stop.is_set():
-            self.root.after(0, lambda: self.pair_status.set(
-                "Pairing code expired - type the username manually."
-            ))
-
-    def _on_pair_received(self, username):
-        self.log(f"[pair] received username '{username}' from browser")
-        self.pair_status.set(f"Received from browser: {username}")
-        # Replace the field even if the user typed something else - the
-        # browser is authoritative.
-        self.user_var.set(username)
-        # Persist immediately so even if install fails, future launches
-        # remember the assignment.
-        write_username_registry(username)
-        # Replace and re-register: kick off install automatically.
-        if self.worker is None or not self.worker.is_alive():
-            self.on_install()
-
-    def _http_get(self, url):
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = r.read().decode("utf-8")
-            return json.loads(data) if data else {}
-
-    def _http_post(self, url, body):
-        data = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=data, method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            txt = r.read().decode("utf-8")
-            return json.loads(txt) if txt else {}
-
-    # ------- button handlers -------
 
     def on_install(self):
         if self.worker and self.worker.is_alive():
             return
-        user = self.user_var.get().strip()
-        if not user:
+        username = normalize_username(self.user_var.get())
+
+
+        password = (self.pwd_var.get() or "").strip()
+
+
+        url = DEFAULT_URL
+        if not username:
             messagebox.showwarning(
                 APP_TITLE,
-                "Please enter the username this PC should register as,\n"
-                "or wait for it to arrive from the browser.",
+                "Please enter a username (the manager will use this to "
+                "open a session against this PC).",
             )
             return
-        self.btn_install.configure(state="disabled")
-        self.btn_uninstall.configure(state="disabled")
-        self.user_entry.configure(state="disabled")
+        if not password:
+            messagebox.showwarning(
+                APP_TITLE,
+                "Please enter a password.",
+            )
+            return
+        self.user_var.set(username)
+        self._lock_form(True)
         self.status.set("Installing...")
         self.worker = threading.Thread(
-            target=self._do_install, args=(user,), daemon=True,
+            target=self._do_install, args=(url, username, password), daemon=True,
         )
         self.worker.start()
 
@@ -387,52 +554,168 @@ class InstallerApp:
             f"{install_dir()} ?",
         ):
             return
-        self.btn_install.configure(state="disabled")
-        self.btn_uninstall.configure(state="disabled")
+        self._lock_form(True)
         self.status.set("Uninstalling...")
         self.worker = threading.Thread(target=self._do_uninstall, daemon=True)
         self.worker.start()
 
-    # ------- background work -------
+    def _lock_form(self, locked):
+        st = "disabled" if locked else "normal"
+        self.btn_install.configure(state=st)
+        self.btn_uninstall.configure(state=st)
+        self.user_entry.configure(state=st)
+        self.pwd_entry.configure(state=st)
 
-    def _do_install(self, username):
+    def _do_install(self, url, username, password):
         try:
             if not IS_WIN:
                 raise RuntimeError("Installs on Windows only.")
-            self.log(f"[info] target user  : {username}")
-            self.log(f"[info] install dir  : {install_dir()}")
+            self.log(f"[info] server     : {url}")
+            self.log(f"[info] username   : {username}")
 
-            # Persist the username early - even if install fails, future
-            # launches still know who this PC belongs to.
+
+            self.log(f"[info] password   : ({len(password)} chars)")
+            self.log(f"[info] install dir: {install_dir()}")
             write_username_registry(username)
+            write_password_registry(password)
 
-            # If we are switching usernames, the old scheduled task and the
-            # old agent on port 8766 will be killed during pre-flight.
+
             self._preflight_cleanup()
             self._ensure_node()
-            self._run_install_ps1(username)
 
+
+            self._run_install_ps1(url, username, password)
+
+
+            self._write_config_json(url, username, password)
+            self._verify_config_json(url, username, password)
+
+
+            self.log("[..] clearing port and any stale agent before sign-in...")
+            self._kill_port(AGENT_PORT)
+            self._start_task()
+            self._wait_for_port_listen(AGENT_PORT, timeout_s=15)
             self.log("[done] install complete - agent is running and will "
                      "auto-start on every login.")
-            self.status.set("Agent installed and running.")
-            self.pair_status.set(f"Registered as: {username}")
+            self.status.set(f"Registered as: {username}")
         except Exception as e:
             self.log(f"[error] {e}")
             self.status.set("Failed. See log.")
             messagebox.showerror(APP_TITLE, str(e))
         finally:
             self.root.after(0, self._refresh_buttons)
-            self.root.after(0, lambda: self.user_entry.configure(state="normal"))
+            self.root.after(0, lambda: self._lock_form(False))
+
+    def _write_config_json(self, url, username, password):
+        cfg_path = install_dir() / "config.json"
+        existing = {}
+        if cfg_path.exists():
+            try:
+                existing = json.loads(cfg_path.read_text(encoding="utf-8"))
+                if not isinstance(existing, dict):
+                    existing = {}
+            except Exception as e:
+                self.log(f"[warn] existing config.json unreadable: {e}; rewriting")
+                existing = {}
+        merged = dict(existing)
+        merged["autopairUrl"]      = url
+        merged["autopairUser"]     = username
+        merged["autopairPassword"] = password
+        merged["allowedOrigin"]    = url
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg_path.write_text(
+            json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        self.log(
+            f"[ok] wrote config.json -> autopairUrl={url}, "
+            f"autopairUser={username}, autopairPassword=({len(password)} chars)"
+        )
+
+    def _verify_config_json(self, url, username, password):
+        cfg_path = install_dir() / "config.json"
+        if not cfg_path.exists():
+            raise RuntimeError(f"config.json missing at {cfg_path}")
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            raise RuntimeError(f"config.json is not valid JSON: {e}")
+        if data.get("autopairUrl") != url:
+            raise RuntimeError(
+                f"config.json autopairUrl is {data.get('autopairUrl')!r}, "
+                f"expected {url!r}"
+            )
+        if data.get("autopairUser") != username:
+            raise RuntimeError(
+                f"config.json autopairUser is {data.get('autopairUser')!r}, "
+                f"expected {username!r}"
+            )
+        if data.get("autopairPassword") != password:
+
+            raise RuntimeError("config.json autopairPassword does not match form input")
+        self.log("[ok] verified config.json (autopair will be enabled on next start)")
+
+    def _start_task(self):
+        """Start the VEAdminAgent scheduled task. Idempotent: if it's already
+        running this is a no-op, which is what we want — the new config has
+        already landed on disk and a running agent will be restarted by the
+        Stop+kill that happens just before this call."""
+        self.log("[..] starting scheduled task...")
+        self._run_powershell([
+            "-Command",
+            "Start-ScheduledTask -TaskName '" + TASK_NAME + "'",
+        ])
+
+    def _restart_task(self):
+        """Stop+kill+start. Kept for the previous Stop button code path; the
+        install flow uses the explicit STOP → KILL → START sequence in
+        _do_install instead so it can interleave config writes."""
+        self.log("[..] restarting scheduled task...")
+        self._run_powershell([
+            "-Command",
+            "Stop-ScheduledTask -TaskName '" + TASK_NAME + "' -ErrorAction SilentlyContinue",
+        ])
+        self._kill_port(AGENT_PORT)
+        self._start_task()
+
+    def _wait_for_port_listen(self, port, timeout_s=15):
+        """Block until something is LISTENING on `port`, or `timeout_s`
+        elapses. We use this to confirm the freshly-started agent actually
+        bound the WS port — without it, "install succeeded" can be a lie
+        if the task launched, hit EADDRINUSE, and is mid-respawn-backoff.
+        Logs whether the wait succeeded but does NOT raise: the scheduled
+        task auto-respawns, so a slow first bind isn't a fatal install
+        failure."""
+        ps = (
+            "$deadline = (Get-Date).AddSeconds(" + str(int(timeout_s)) + "); "
+            "while ((Get-Date) -lt $deadline) { "
+            "  $c = Get-NetTCPConnection -LocalPort " + str(port) + " "
+            "       -State Listen -ErrorAction SilentlyContinue; "
+            "  if ($c) { "
+            "    Write-Host \"       agent is listening on port " + str(port) + " (PID $($c[0].OwningProcess))\"; "
+            "    exit 0 "
+            "  } "
+            "  Start-Sleep -Milliseconds 500 "
+            "} "
+            "Write-Host \"       (timeout) agent didn't bind port " + str(port) + " within " + str(int(timeout_s)) + "s; \"; "
+            "Write-Host \"       check %LocalAppData%\\VEAdminAgent\\agent.log for crash details.\"; "
+            "exit 1"
+        )
+        self._run_powershell(["-Command", ps])
 
     def _do_stop(self):
+
+
         try:
             self.log("[..] stopping VEAdminAgent scheduled task...")
             self._run_powershell([
                 "-Command",
-                f"try {{ Stop-ScheduledTask -TaskName '{TASK_NAME}' "
-                f"-ErrorAction Stop; Write-Host 'task stopped' }} "
-                f"catch {{ Write-Host '       (task was not running)' }}",
+                "try { Stop-ScheduledTask -TaskName '" + TASK_NAME + "' "
+                "-ErrorAction Stop; Write-Host '       task stopped' } "
+                "catch { Write-Host '       (task was not running)' }",
             ])
+            self.log("[..] killing port + any stray agent processes...")
             self._kill_port(AGENT_PORT)
             self.status.set("Agent stopped.")
         except Exception as e:
@@ -442,7 +725,11 @@ class InstallerApp:
             self.root.after(0, self._refresh_buttons)
 
     def _do_uninstall(self):
+
+
         try:
+            self.log("[..] pre-uninstall: killing port + stale agent processes...")
+            self._kill_port(AGENT_PORT)
             ps1 = resource_dir() / "uninstall.ps1"
             if ps1.exists():
                 self.log("[..] running uninstall.ps1 ...")
@@ -452,16 +739,19 @@ class InstallerApp:
             else:
                 self._run_powershell([
                     "-Command",
-                    f"try {{ Stop-ScheduledTask -TaskName '{TASK_NAME}' "
-                    f"-ErrorAction SilentlyContinue }} catch {{}}; "
-                    f"try {{ Unregister-ScheduledTask -TaskName '{TASK_NAME}' "
-                    f"-Confirm:$false -ErrorAction SilentlyContinue }} catch {{}}",
+                    "try { Stop-ScheduledTask -TaskName '" + TASK_NAME + "' "
+                    "-ErrorAction SilentlyContinue } catch {}; "
+                    "try { Unregister-ScheduledTask -TaskName '" + TASK_NAME + "' "
+                    "-Confirm:$false -ErrorAction SilentlyContinue } catch {}",
                 ])
                 self._kill_port(AGENT_PORT)
                 d = install_dir()
                 if d.exists():
                     shutil.rmtree(d, ignore_errors=True)
                     self.log(f"[ok] removed {d}")
+
+            self.log("[..] post-uninstall: final port + process sweep...")
+            self._kill_port(AGENT_PORT)
             self.log("[done] uninstalled.")
             self.status.set("Uninstalled.")
         except Exception as e:
@@ -469,17 +759,15 @@ class InstallerApp:
             self.status.set("Uninstall failed. See log.")
         finally:
             self.root.after(0, self._refresh_buttons)
-            self.root.after(0, lambda: self.user_entry.configure(state="normal"))
-
-    # ------- install steps -------
+            self.root.after(0, lambda: self._lock_form(False))
 
     def _preflight_cleanup(self):
-        self.log("[1/3] pre-flight cleanup...")
+        self.log("[..] pre-flight cleanup...")
         self._kill_port(AGENT_PORT)
         self._run_powershell([
             "-Command",
-            f"try {{ Stop-ScheduledTask -TaskName '{TASK_NAME}' "
-            f"-ErrorAction SilentlyContinue }} catch {{}}",
+            "try { Stop-ScheduledTask -TaskName '" + TASK_NAME + "' "
+            "-ErrorAction SilentlyContinue } catch {}",
         ])
         appdata = os.environ.get("APPDATA", "")
         if appdata:
@@ -492,20 +780,38 @@ class InstallerApp:
                     self.log(f"       (could not remove legacy shortcut: {e})")
 
     def _kill_port(self, port):
-        self._run_powershell([
-            "-Command",
+
+
+        ps = (
+            "$ErrorActionPreference='Continue'; "
+
             f"$c = Get-NetTCPConnection -LocalPort {port} -State Listen "
             f"-ErrorAction SilentlyContinue; "
             f"if ($c) {{ foreach ($x in $c) {{ "
-            f"  try {{ Stop-Process -Id $x.OwningProcess -Force "
-            f"        -ErrorAction Stop; "
+            f"  try {{ Stop-Process -Id $x.OwningProcess -Force -ErrorAction Stop; "
             f"        Write-Host \"       killed PID $($x.OwningProcess) on {port}\" }} "
-            f"  catch {{ Write-Host \"       could not kill PID $($x.OwningProcess)\" }} "
-            f"}} }} else {{ Write-Host '       no process on port {port}' }}",
-        ])
+            f"  catch {{ Write-Host \"       could not kill PID $($x.OwningProcess) on {port}\" }} "
+            f"}} }} else {{ Write-Host '       no process on port {port}' }}; "
+
+            "$needles = @('VEAdminAgent\\\\agent.js','VEAdminAgent\\\\run-agent.ps1','agent.js'); "
+            "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue "
+            "  | Where-Object { $_.Name -in @('node.exe','powershell.exe','pwsh.exe') } "
+            "  | Where-Object { "
+            "      $cl = [string]$_.CommandLine; "
+            "      ($cl -match 'VEAdminAgent') -or ($cl -match 'run-agent\\.ps1') "
+            "    }; "
+            "if ($procs) { foreach ($p in $procs) { "
+            "  try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; "
+            "        Write-Host \"       killed stale $($p.Name) PID $($p.ProcessId)\" } "
+            "  catch { Write-Host \"       could not kill $($p.Name) PID $($p.ProcessId)\" } "
+            "} } else { Write-Host '       no stale agent processes' }; "
+
+            "Start-Sleep -Milliseconds 500"
+        )
+        self._run_powershell(["-Command", ps])
 
     def _ensure_node(self):
-        self.log("[2/3] checking Node.js...")
+        self.log("[..] checking Node.js...")
         ok = False
         try:
             r = subprocess.run(
@@ -528,7 +834,6 @@ class InstallerApp:
 
         if ok:
             return
-
         if not have("winget"):
             raise RuntimeError(
                 "Node.js v20+ not found and winget is not available.\n"
@@ -545,9 +850,9 @@ class InstallerApp:
         self._refresh_path_from_registry()
         if not have("node"):
             raise RuntimeError(
-                "Node.js install via winget did not make node.exe "
-                "visible. Please reboot and try again, or install "
-                "Node.js LTS manually from https://nodejs.org."
+                "Node.js install via winget did not make node.exe visible. "
+                "Please reboot and try again, or install Node.js LTS manually "
+                "from https://nodejs.org."
             )
 
     def _refresh_path_from_registry(self):
@@ -572,60 +877,51 @@ class InstallerApp:
             os.environ["PATH"] = ";".join(parts)
             self.log("       refreshed PATH from registry")
 
-    def _run_install_ps1(self, username):
-        self.log("[3/3] running install.ps1 ...")
+    def _run_install_ps1(self, url, username, password):
+        self.log("[..] running install.ps1 (copies files, npm install, "
+                 "writes config.json, registers scheduled task)...")
         ps1 = resource_dir() / "install.ps1"
         if not ps1.exists():
             raise RuntimeError(
                 f"install.ps1 not found at {ps1}. "
                 "The .exe may have been built without bundling agent files."
             )
+
+
         rc = self._run_powershell([
             "-File", str(ps1),
-            "-ServerUrl", SERVER_URL,
+            "-ServerUrl", url,
             "-Username", username,
-            "-AllowedOrigin", ALLOWED_ORIGIN,
+            "-Password", password,
+            "-AllowedOrigin", url,
             "-NonInteractive",
-        ])
+            "-NoStart",
+        ], hide_args={"-Password"})
         if rc != 0:
             raise RuntimeError(f"install.ps1 exited with code {rc}")
-
-    # ------- button state -------
 
     def _refresh_buttons(self):
         running = False
         try:
             r = subprocess.run(
                 ["powershell", "-NoProfile", "-Command",
-                 f"(Get-ScheduledTask -TaskName '{TASK_NAME}' "
-                 f"-ErrorAction SilentlyContinue).State"],
+                 "(Get-ScheduledTask -TaskName '" + TASK_NAME + "' "
+                 "-ErrorAction SilentlyContinue).State"],
                 capture_output=True, text=True, creationflags=NO_WIN,
             )
             running = "Running" in (r.stdout or "")
         except Exception:
             pass
-        self.btn_install.configure(state="disabled" if running else "normal")
+        self.btn_install.configure(state="normal")
         self.btn_stop.configure(state="normal" if running else "disabled")
         self.btn_uninstall.configure(state="normal")
 
 
-# --------------------------------------------------------------------------- #
-# Entrypoint
-# --------------------------------------------------------------------------- #
-
 def main():
     root = tk.Tk()
-    try:
-        if IS_WIN:
-            ttk.Style().theme_use("vista")
-    except tk.TclError:
-        pass
-    app = InstallerApp(root)
 
-    def on_close():
-        app.pair_stop.set()
-        root.destroy()
-    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    InstallerApp(root)
     root.mainloop()
 
 

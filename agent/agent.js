@@ -353,33 +353,20 @@ public struct INPUT { public uint type; public INPUTUNION u; }
 
 public static void TypeChar(char c) {
   INPUT[] a = new INPUT[2];
-  a[0].type = 1; a[0].u.ki.wScan = (ushort)c; a[0].u.ki.dwFlags = 4; // KEYEVENTF_UNICODE
-  a[1].type = 1; a[1].u.ki.wScan = (ushort)c; a[1].u.ki.dwFlags = 4 | 2; // + KEYUP
+  a[0].type = 1; a[0].u.ki.wScan = (ushort)c; a[0].u.ki.dwFlags = 4;
+  a[1].type = 1; a[1].u.ki.wScan = (ushort)c; a[1].u.ki.dwFlags = 4 | 2;
   SendInput(2u, a, System.Runtime.InteropServices.Marshal.SizeOf(typeof(INPUT)));
 }
 "@
-# Helpers are named Do* (not Move / Btn / Scroll) because PowerShell ships
-# built-in aliases like 'Move' -> 'Move-Item'. If the function definition
-# below ever fails to register -- Add-Type error, scope weirdness when reading
-# from stdin, a respawn that half-succeeds -- piping 'Move 0.5 0.5' would
-# silently resolve to 'Move-Item 0.5 0.5' and try to rename files named
-# '0.5', not move the cursor. Using names that aren't also cmdlet aliases
-# makes that failure mode loud ("DoMove is not recognized") instead of
-# silently shuffling files around on disk. 'global:' forces them into the
-# global session state so they survive whatever scope the stdin lines run in.
 function global:DoMove($nx,$ny) {
   $sw=[W.U]::GetSystemMetrics(0); $sh=[W.U]::GetSystemMetrics(1)
   [W.U]::SetCursorPos([int]($sw*$nx),[int]($sh*$ny)) | Out-Null
 }
 function global:DoBtn($flag) { [W.U]::mouse_event($flag,0,0,0,0) }
 function global:DoScroll($d) { [W.U]::mouse_event(2048,0,0,$d,0) }
-# KEYEVENTF_KEYUP = 2
 function global:DoKeyDown($vk) { [W.U]::keybd_event([byte]$vk, 0, 0, 0) }
 function global:DoKeyUp($vk)   { [W.U]::keybd_event([byte]$vk, 0, 2, 0) }
 function global:DoType($s) { foreach ($ch in $s.ToCharArray()) { [W.U]::TypeChar($ch) } }
-# Self-test: read current cursor position, nudge right 2px, then put it back.
-# If you see a tiny cursor jiggle on agent startup, OS injection works. If
-# you don't, antivirus or UAC is blocking user32 and that's the root cause.
 try {
   Add-Type -Name P -Namespace W -MemberDefinition @"
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
@@ -612,7 +599,6 @@ function move(nx, ny) {
 function btn(kind, which) {
   var pos = $.CGEventGetLocation($.CGEventCreate(null));
   var types = {lu:1, ld:2, rd:3, ru:4, mu:26, md:25, lc:2, rc:3, mc:25};
-  // 'c' = click: we emit down+up
   if (kind === "c") { btn("d", which); btn("u", which); return; }
   var t = types[(kind + which) ] || 2;
   var e = $.CGEventCreateMouseEvent(null, t, pos,

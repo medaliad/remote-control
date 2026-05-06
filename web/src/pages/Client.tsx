@@ -434,7 +434,6 @@ export function ClientPage({
               they approve. Feel free to cancel if you've changed your mind.
             </p>
 
-            {}
             <div className="flex items-center justify-center gap-2 py-8 my-2 rounded-2xl border border-dashed border-accent/30 bg-gradient-to-b from-accent/[0.08] to-transparent">
               <span className="w-2.5 h-2.5 rounded-full bg-accent-hi animate-pulse-fast" />
               <span className="w-2.5 h-2.5 rounded-full bg-accent-hi animate-pulse-fast" style={{
@@ -476,7 +475,6 @@ export function ClientPage({
             second or two.
           </p>
 
-          {}
           <div className="space-y-3 mb-6">
             <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
             <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
@@ -490,9 +488,7 @@ export function ClientPage({
   }
   return <div className={["w-full animate-slide-up", embed ? "w-full h-screen flex flex-col" : "max-w-[min(1600px,100%)] mx-auto flex flex-col"].join(" ")}>
       <div className={["relative flex flex-col flex-1 min-h-0", embed ? "bg-black" : "overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl"].join(" ")}>
-        {}
         <div className={["flex items-center gap-2 sm:gap-3 shrink-0", embed ? "px-2 sm:px-4 py-2 bg-white/95 backdrop-blur border-b border-line" : "p-3 sm:p-5 md:p-6 pb-3 sm:pb-4 md:pb-5"].join(" ")}>
-          {}
           <div className="flex items-center gap-2 min-w-0">
             <StatusPill kind="connected" label={`Connected to ${state.code}`} compact />
             {state.allowControl && <span className="hidden xs:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-[12.5px] font-medium bg-accent/15 border border-accent/30 text-accent-hi whitespace-nowrap" title="The host has granted you remote input.">
@@ -504,7 +500,6 @@ export function ClientPage({
 
           <div className="flex-1 min-w-[0.5rem]" />
 
-          {}
           <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={toggleMuted} title={muted ? "Unmute shared audio" : "Mute shared audio"} aria-label={muted ? "Unmute" : "Mute"}>
             {muted ? <VolumeX className="w-4 h-4" strokeWidth={2.2} /> : <Volume2 className="w-4 h-4" strokeWidth={2.2} />}
             <span className="hidden md:inline">{muted ? "Unmute" : "Mute"}</span>
@@ -517,7 +512,6 @@ export function ClientPage({
             </span>
           </button>
 
-          {}
           <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-expanded={sidePanelOpen}>
             {sidePanelOpen ? <PanelRightClose className="w-4 h-4" strokeWidth={2.2} /> : <PanelRightOpen className="w-4 h-4" strokeWidth={2.2} />}
             <span className="hidden lg:inline">{sidePanelOpen ? "Hide info" : "Info"}</span>
@@ -529,9 +523,7 @@ export function ClientPage({
           </button>
         </div>
 
-        {}
         <div className={["flex-1 min-h-0 flex", sidePanelOpen ? "flex-col lg:flex-row" : "flex-col", embed ? "" : "px-3 sm:px-5 md:px-6 pb-3 sm:pb-5 md:pb-6 gap-4 sm:gap-5"].join(" ")}>
-          {}
           <div className="flex-1 min-h-0 flex flex-col">
             <div className={["relative flex-1 min-h-0 overflow-hidden bg-black", embed ? "" : "rounded-xl sm:rounded-2xl border border-line shadow-soft-xl"].join(" ")} style={{
             minHeight: embed ? undefined : "min(60vh, 540px)"
@@ -551,7 +543,6 @@ export function ClientPage({
               </p>}
           </div>
 
-          {}
           {sidePanelOpen && <aside className={["flex flex-col gap-2.5 sm:gap-3 shrink-0 animate-fade-in", embed ? "w-full lg:w-[300px] p-3 sm:p-4 bg-white/95 backdrop-blur border-t lg:border-t-0 lg:border-l border-line overflow-y-auto" : "w-full lg:w-[300px]"].join(" ")}>
               <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">

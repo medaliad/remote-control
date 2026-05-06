@@ -10,3 +10,5 @@ out/
 .turbo/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.pyc

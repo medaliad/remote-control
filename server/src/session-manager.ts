@@ -155,7 +155,7 @@ export class SessionManager {
     if (!ctx || ctx.role !== "host" || !ctx.sessionCode) return null;
     const session = this.byCode.get(ctx.sessionCode);
     if (!session) return null;
-    this.teardown(session, "host ended session");
+    this.teardown(session);
     return session;
   }
   setControl(hostWs: WebSocket, allowed: boolean): Session | null {
@@ -246,7 +246,7 @@ export class SessionManager {
       };
     }
     if (ctx.role === "host") {
-      const notifyList = this.teardown(session, "host left");
+      const notifyList = this.teardown(session);
       return {
         kind: "host-left",
         notify: notifyList
@@ -256,7 +256,7 @@ export class SessionManager {
       kind: "none"
     };
   }
-  private teardown(session: Session, reason: string): WebSocket[] {
+  private teardown(session: Session): WebSocket[] {
     const toNotify: WebSocket[] = [];
     if (session.clientWs) toNotify.push(session.clientWs);
     for (const req of session.pending.values()) toNotify.push(req.ws);
@@ -270,7 +270,6 @@ export class SessionManager {
       }
     }
     this.byCode.delete(session.code);
-    void reason;
     return toNotify;
   }
   registerAgent(ws: WebSocket, user: string, agentId: string): AgentEntry {

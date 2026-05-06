@@ -415,7 +415,6 @@ export function HostPage({
           <h1 className="mt-5 text-3xl font-bold tracking-tight">Setting up your session</h1>
           <p className="mt-2 text-muted leading-relaxed">Connecting to the signaling server.</p>
 
-          {}
           <div className="mt-8 space-y-3">
             <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
             <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
@@ -430,7 +429,6 @@ export function HostPage({
   if (state.kind === "connected") {
     return <div className={["w-full animate-slide-up", embed ? "h-screen flex flex-col" : "max-w-[min(1600px,100%)] mx-auto flex flex-col"].join(" ")}>
         <div className={["relative flex flex-col flex-1 min-h-0", embed ? "bg-black" : "overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl"].join(" ")}>
-          {}
           <div className={["flex items-center gap-2 sm:gap-3 shrink-0", embed ? "px-2 sm:px-4 py-2 bg-white/95 backdrop-blur border-b border-line" : "p-3 sm:p-5 md:p-6 pb-3 sm:pb-4 md:pb-5"].join(" ")}>
             <div className="flex items-center gap-2 min-w-0">
               <StatusPill kind={statusKind} label={statusLabel} compact />
@@ -446,7 +444,6 @@ export function HostPage({
             </button>
           </div>
 
-          {}
           {allowControl && agentStatus !== "up" && <div className={["flex items-start gap-3 p-3 sm:p-4 border-b animate-slide-up shrink-0", agentStatus === "down" ? "border-danger/40 bg-red-50 text-red-800" : "border-warning/40 bg-amber-50 text-amber-800"].join(" ")}>
               <AlertTriangle className={["shrink-0 mt-0.5 w-5 h-5", agentStatus === "down" ? "text-danger" : "text-warning"].join(" ")} strokeWidth={2.2} />
               <div className="flex-1 min-w-0">
@@ -488,9 +485,7 @@ export function HostPage({
               </div>
             </div>}
 
-          {}
           <div className={["flex-1 min-h-0 flex", sidePanelOpen ? "flex-col lg:flex-row" : "flex-col", embed ? "" : "px-3 sm:px-5 md:px-6 pb-3 sm:pb-5 md:pb-6 gap-4 sm:gap-5"].join(" ")}>
-            {}
             <div className="flex-1 min-h-0 flex flex-col">
               <div className={["relative flex-1 min-h-0 overflow-hidden bg-black group", embed ? "" : "rounded-xl sm:rounded-2xl border border-line shadow-soft-xl"].join(" ")} style={{
               minHeight: embed ? undefined : "min(60vh, 540px)"
@@ -513,7 +508,6 @@ export function HostPage({
                 </p>}
             </div>
 
-            {}
             {sidePanelOpen && <aside className={["flex flex-col gap-2.5 sm:gap-3 shrink-0 animate-fade-in", embed ? "w-full lg:w-[300px] p-3 sm:p-4 bg-white/95 backdrop-blur border-t lg:border-t-0 lg:border-l border-line overflow-y-auto" : "w-full lg:w-[300px]"].join(" ")}>
                 <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">

@@ -8,9 +8,7 @@ export function Home({
   embed = false
 }: Props) {
   return <div className={["w-full max-w-5xl animate-slide-up px-3 sm:px-0", embed ? "m-auto" : ""].join(" ")}>
-      {}
       <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-white border border-line shadow-soft-xl p-6 sm:p-8 md:p-12">
-        {}
         <div className="absolute inset-0 bg-dots opacity-50 pointer-events-none" />
 
         <div className="relative">

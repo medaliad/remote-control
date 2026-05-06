@@ -5,7 +5,7 @@ a = Analysis(
     ['installer_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('icon.ico', '.'), ('virtual_eye_logo.png', '.'), ('install.ps1', '.'), ('agent.js', '.'), ('package.json', '.'), ('package-lock.json', '.'), ('node_modules', 'node_modules'), ('logo02.png', '.'), ('uninstall.ps1', '.'), ('start-agent.cmd', '.'), ('start-agent-hidden.vbs', '.'), ('HOW-TO-USE.txt', '.')],
+    datas=[('icon.ico', '.'), ('virtual_eye_logo.png', '.'), ('install.ps1', '.'), ('agent.js', '.'), ('package.json', '.'), ('package-lock.json', '.'), ('node_modules', 'node_modules'), ('logo02.png', '.'), ('uninstall.ps1', '.'), ('start-agent.cmd', '.'), ('start-agent-hidden.vbs', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

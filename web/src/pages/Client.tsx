@@ -104,7 +104,7 @@ export function ClientPage({
           v.play().catch(err => console.warn("[client] video.play():", err));
         },
         onConnectionStateChange: s => {
-          if (s === "failed" || s === "closed") hardDisconnect("WebRTC session ended.");
+          if (s === "failed" || s === "closed") hardDisconnect("The connection was closed.");
         },
         onChannelOpen: () => {
           peer.sendInput({
@@ -415,7 +415,7 @@ export function ClientPage({
             Requesting connection
           </h1>
           <p className="mt-2 text-muted leading-relaxed">
-            Contacting the signaling server with code{" "}
+            Connecting with code{" "}
             <code className="font-mono text-accent-hi">{state.code}</code>.
           </p>
         </div>
@@ -471,8 +471,7 @@ export function ClientPage({
             Connecting to {state.code}
           </h1>
           <p className="mt-2 text-muted leading-relaxed mb-6">
-            Negotiating the peer-to-peer connection. This usually takes a
-            second or two.
+            Establishing the connection. This usually takes a second or two.
           </p>
 
           <div className="space-y-3 mb-6">

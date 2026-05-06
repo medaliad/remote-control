@@ -77,9 +77,9 @@ export function Home({
             </span>
             <p className="text-[13px] sm:text-sm text-text700 leading-relaxed">
               <strong className="font-semibold text-text900">Privacy:</strong>{" "}
-              screen sharing runs peer-to-peer via WebRTC. The server only
-              relays the one-time approval handshake — your screen contents
-              never pass through it.
+              Your screen is shared directly with the viewer. The server only
+              handles the initial connection setup — your screen contents are
+              never stored or sent through it.
             </p>
           </div>
         </div>

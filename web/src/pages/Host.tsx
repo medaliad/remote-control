@@ -208,7 +208,7 @@ export function HostPage({
       const peer = new Peer(sig, "host", {
         onInput: handleRemoteInput,
         onConnectionStateChange: s => {
-          if (s === "failed" || s === "closed") hardDisconnect("WebRTC session ended.");
+          if (s === "failed" || s === "closed") hardDisconnect("The connection was closed.");
         }
       });
       peerRef.current = peer;
@@ -413,7 +413,7 @@ export function HostPage({
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <StatusPill kind="waiting" label="Creating…" />
           <h1 className="mt-5 text-3xl font-bold tracking-tight">Setting up your session</h1>
-          <p className="mt-2 text-muted leading-relaxed">Connecting to the signaling server.</p>
+          <p className="mt-2 text-muted leading-relaxed">Connecting to the server…</p>
 
           <div className="mt-8 space-y-3">
             <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
@@ -459,11 +459,8 @@ export function HostPage({
                     <ol className="list-decimal pl-5 mt-1.5 space-y-0.5">
                       <li>
                         This page must be open on the <em>same</em> computer
-                        you want controlled. The helper only listens on{" "}
-                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                          ws://127.0.0.1:8766
-                        </code>
-                        , which is local to one machine.
+                        you want controlled. The helper only works locally — it
+                        cannot be reached from another machine.
                       </li>
                       <li>
                         Install or restart the helper: open the{" "}
@@ -559,11 +556,11 @@ export function HostPage({
                         Agent connected, backend warming up.{" "}
                         {agentBackend === "vb6" ? <>Start <code className="font-mono text-accent-hi">MouseControl.exe</code> — should attach within a second.</> : <>PowerShell is loading the Win32 wrapper — usually less than a second.</>}
                       </>}
-                      {agentStatus === "connecting" && <>Connecting to <code className="font-mono text-accent-hi">ws://127.0.0.1:8766</code>…</>}
+                      {agentStatus === "connecting" && <>Connecting to local agent…</>}
                       {agentStatus === "down" && <>
                         Can't reach the local agent. Run <code className="font-mono text-accent-hi">npm start</code> inside <code className="font-mono text-accent-hi">agent/</code>.
                       </>}
-                      {agentStatus === "off" && <>Toggling on connects to <code className="font-mono text-accent-hi">ws://127.0.0.1:8766</code>.</>}
+                      {agentStatus === "off" && <>Toggle on to enable remote input control.</>}
                     </p>
                   </div>}
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
-import { Eye, User, KeyRound, ArrowRight, Loader2, AlertTriangle, XCircle, Volume2, VolumeX, Maximize2, Minimize2, PowerOff, Send, Lightbulb, MousePointerClick, Shield, PanelRightOpen, PanelRightClose } from "lucide-react";
+import { Eye, User, KeyRound, ArrowRight, Loader2, AlertTriangle, XCircle, Volume2, VolumeX, Maximize2, Minimize2, PowerOff, Send, Lightbulb, MousePointerClick, Shield, PanelRightOpen, PanelRightClose, Mic, MicOff } from "lucide-react";
 type ClientState = {
   kind: "idle";
 } | {
@@ -42,6 +42,9 @@ export function ClientPage({
   const [clientName, setClientName] = useState("Client");
   const [muted, setMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [micOn, setMicOn] = useState(false);
+  const [micBusy, setMicBusy] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(() => {
     if (embed) return false;
     if (typeof window !== "undefined") return window.innerWidth >= 1024;
@@ -50,12 +53,17 @@ export function ClientPage({
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const hardDisconnect = useCallback((reason: string, terminalKind: "disconnected" | "rejected" = "disconnected") => {
     peerRef.current?.close();
     peerRef.current = null;
     signalingRef.current?.close();
     signalingRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    setMicOn(false);
+    setMicBusy(false);
+    setMicError(null);
     setState(s => {
       if (terminalKind === "rejected" && (s.kind === "requesting" || s.kind === "waiting")) {
         return {
@@ -102,6 +110,12 @@ export function ClientPage({
           if (!v) return;
           v.srcObject = stream;
           v.play().catch(err => console.warn("[client] video.play():", err));
+        },
+        onRemoteAudioStream: stream => {
+          const a = remoteAudioRef.current;
+          if (!a) return;
+          a.srcObject = stream;
+          a.play().catch(err => console.warn("[client] remote audio play():", err));
         },
         onConnectionStateChange: s => {
           if (s === "failed" || s === "closed") hardDisconnect("The connection was closed.");
@@ -189,6 +203,27 @@ export function ClientPage({
       if (!next) v.play().catch(err => console.warn("[client] unmute play():", err));
     }
   };
+  const toggleMic = useCallback(async () => {
+    const peer = peerRef.current;
+    if (!peer || micBusy) return;
+    setMicBusy(true);
+    setMicError(null);
+    try {
+      if (micOn) {
+        peer.closeMic();
+        setMicOn(false);
+      } else {
+        const ok = await peer.openMic();
+        if (ok) {
+          setMicOn(true);
+        } else {
+          setMicError("Couldn't access the microphone. Check browser permissions.");
+        }
+      }
+    } finally {
+      setMicBusy(false);
+    }
+  }, [micOn, micBusy]);
   const toggleFullscreen = () => {
     const v = videoRef.current;
     if (!v) return;
@@ -499,6 +534,11 @@ export function ClientPage({
 
           <div className="flex-1 min-w-[0.5rem]" />
 
+          <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? "Turn microphone off" : "Turn microphone on"} aria-label={micOn ? "Turn microphone off" : "Turn microphone on"} aria-pressed={micOn}>
+            {micBusy ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
+            <span className="hidden md:inline">{micOn ? "Mic on" : "Mic off"}</span>
+          </button>
+
           <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={toggleMuted} title={muted ? "Unmute shared audio" : "Mute shared audio"} aria-label={muted ? "Unmute" : "Mute"}>
             {muted ? <VolumeX className="w-4 h-4" strokeWidth={2.2} /> : <Volume2 className="w-4 h-4" strokeWidth={2.2} />}
             <span className="hidden md:inline">{muted ? "Unmute" : "Mute"}</span>
@@ -521,6 +561,17 @@ export function ClientPage({
             <span className="hidden md:inline">Disconnect</span>
           </button>
         </div>
+
+        {micError && <div className="flex items-start gap-3 p-3 sm:p-4 border-b border-danger/40 bg-red-50 text-red-800 animate-slide-up shrink-0">
+            <AlertTriangle className="shrink-0 mt-0.5 w-5 h-5 text-danger" strokeWidth={2.2} />
+            <div className="flex-1 min-w-0">
+              <strong className="text-sm font-semibold text-text900 block">Microphone unavailable</strong>
+              <p className="mt-0.5 text-[12.5px] sm:text-[13px] leading-relaxed text-red-700/90">{micError}</p>
+            </div>
+            <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>Dismiss</button>
+          </div>}
+
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
         <div className={["flex-1 min-h-0 flex", sidePanelOpen ? "flex-col lg:flex-row" : "flex-col", embed ? "" : "px-3 sm:px-5 md:px-6 pb-3 sm:pb-5 md:pb-6 gap-4 sm:gap-5"].join(" ")}>
           <div className="flex-1 min-h-0 flex flex-col">

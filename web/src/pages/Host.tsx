@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
-import { MonitorPlay, Copy, Link as LinkIcon, Check, X, PowerOff, AlertTriangle, Loader2, Shield, Activity, Cpu, ShieldCheck, CircleDot, KeyRound, PanelRightOpen, PanelRightClose } from "lucide-react";
+import { MonitorPlay, Copy, Link as LinkIcon, Check, X, PowerOff, AlertTriangle, Loader2, Shield, Activity, Cpu, ShieldCheck, CircleDot, KeyRound, PanelRightOpen, PanelRightClose, Mic, MicOff } from "lucide-react";
 const AGENT_WS_URL = "ws://127.0.0.1:8766";
 type HostState = {
   kind: "idle";
@@ -48,9 +48,13 @@ export function HostPage({
   });
   const [agentStatus, setAgentStatus] = useState<"off" | "connecting" | "warming" | "up" | "down">("off");
   const [agentBackend, setAgentBackend] = useState<string>("");
+  const [micOn, setMicOn] = useState(false);
+  const [micBusy, setMicBusy] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const agentRef = useRef<WebSocket | null>(null);
   const agentQueueRef = useRef<string[]>([]);
   const agentWantedRef = useRef<boolean>(false);
@@ -162,6 +166,10 @@ export function HostPage({
     allowControlRef.current = false;
     setAllowControl(false);
     setIncomingLog([]);
+    setMicOn(false);
+    setMicBusy(false);
+    setMicError(null);
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     setState({
       kind: "disconnected",
       reason
@@ -207,6 +215,12 @@ export function HostPage({
       }
       const peer = new Peer(sig, "host", {
         onInput: handleRemoteInput,
+        onRemoteAudioStream: stream => {
+          const a = remoteAudioRef.current;
+          if (!a) return;
+          a.srcObject = stream;
+          a.play().catch(err => console.warn("[host] remote audio play():", err));
+        },
         onConnectionStateChange: s => {
           if (s === "failed" || s === "closed") hardDisconnect("The connection was closed.");
         }
@@ -253,6 +267,10 @@ export function HostPage({
       peerRef.current?.close();
       peerRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
+      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+      setMicOn(false);
+      setMicBusy(false);
+      setMicError(null);
       setState(s => {
         if (s.kind === "connected" || s.kind === "connecting" || s.kind === "request") {
           return {
@@ -350,6 +368,27 @@ export function HostPage({
     });
     if (next) ensureAgent();else closeAgent();
   };
+  const toggleMic = useCallback(async () => {
+    const peer = peerRef.current;
+    if (!peer || micBusy) return;
+    setMicBusy(true);
+    setMicError(null);
+    try {
+      if (micOn) {
+        peer.closeMic();
+        setMicOn(false);
+      } else {
+        const ok = await peer.openMic();
+        if (ok) {
+          setMicOn(true);
+        } else {
+          setMicError("Couldn't access the microphone. Check browser permissions.");
+        }
+      }
+    } finally {
+      setMicBusy(false);
+    }
+  }, [micOn, micBusy]);
   const copyCode = (code: string) => {
     navigator.clipboard.writeText(code).catch(() => {});
   };
@@ -434,6 +473,10 @@ export function HostPage({
               <StatusPill kind={statusKind} label={statusLabel} compact />
             </div>
             <div className="flex-1 min-w-[0.5rem]" />
+            <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? "Turn microphone off" : "Turn microphone on"} aria-label={micOn ? "Turn microphone off" : "Turn microphone on"} aria-pressed={micOn}>
+              {micBusy ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
+              <span className="hidden md:inline">{micOn ? "Mic on" : "Mic off"}</span>
+            </button>
             <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-expanded={sidePanelOpen}>
               {sidePanelOpen ? <PanelRightClose className="w-4 h-4" strokeWidth={2.2} /> : <PanelRightOpen className="w-4 h-4" strokeWidth={2.2} />}
               <span className="hidden lg:inline">{sidePanelOpen ? "Hide info" : "Info"}</span>
@@ -443,6 +486,17 @@ export function HostPage({
               <span className="hidden md:inline">End session</span>
             </button>
           </div>
+
+          {micError && <div className="flex items-start gap-3 p-3 sm:p-4 border-b border-danger/40 bg-red-50 text-red-800 animate-slide-up shrink-0">
+              <AlertTriangle className="shrink-0 mt-0.5 w-5 h-5 text-danger" strokeWidth={2.2} />
+              <div className="flex-1 min-w-0">
+                <strong className="text-sm font-semibold text-text900 block">Microphone unavailable</strong>
+                <p className="mt-0.5 text-[12.5px] sm:text-[13px] leading-relaxed text-red-700/90">{micError}</p>
+              </div>
+              <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>Dismiss</button>
+            </div>}
+
+          <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
           {allowControl && agentStatus !== "up" && <div className={["flex items-start gap-3 p-3 sm:p-4 border-b animate-slide-up shrink-0", agentStatus === "down" ? "border-danger/40 bg-red-50 text-red-800" : "border-warning/40 bg-amber-50 text-amber-800"].join(" ")}>
               <AlertTriangle className={["shrink-0 mt-0.5 w-5 h-5", agentStatus === "down" ? "text-danger" : "text-warning"].join(" ")} strokeWidth={2.2} />

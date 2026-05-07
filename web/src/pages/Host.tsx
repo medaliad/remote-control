@@ -405,6 +405,22 @@ export function HostPage({
     } catch {}
   }, []);
   if (state.kind === "idle" || state.kind === "disconnected") {
+    if (embed || autoPairToken) {
+      return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
+          <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
+            {state.kind === "idle" && <div className="flex items-center gap-3">
+                <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
+                <p className="text-muted leading-relaxed">Preparing session…</p>
+              </div>}
+            {state.kind === "disconnected" && <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
+                <p className="text-sm leading-relaxed">
+                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                </p>
+              </div>}
+          </div>
+        </div>;
+    }
     return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />

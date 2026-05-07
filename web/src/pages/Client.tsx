@@ -181,12 +181,13 @@ export function ClientPage({
   }, [code, clientName, autoPairToken, hardDisconnect]);
   const autoStartedRef = useRef(false);
   useEffect(() => {
-    if (!autoPairToken) return;
     if (autoStartedRef.current) return;
     if (state.kind !== "idle") return;
+    const canAutoStart = !!autoPairToken || (embed && code.trim().length >= 4);
+    if (!canAutoStart) return;
     autoStartedRef.current = true;
     void sendRequest();
-  }, [autoPairToken, sendRequest]);
+  }, [autoPairToken, embed, code, state.kind, sendRequest]);
   const cancel = () => {
     signalingRef.current?.send({
       type: "client:cancel"
@@ -383,6 +384,28 @@ export function ClientPage({
     signalingRef.current?.close();
   }, []);
   if (state.kind === "idle" || state.kind === "disconnected" || state.kind === "rejected") {
+    if (embed) {
+      return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
+          <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
+            {state.kind === "idle" && <div className="flex items-center gap-3">
+                <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
+                <p className="text-muted leading-relaxed">Connecting…</p>
+              </div>}
+            {state.kind === "disconnected" && <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
+                <p className="text-sm leading-relaxed">
+                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                </p>
+              </div>}
+            {state.kind === "rejected" && <div className="flex items-start gap-3 p-4 rounded-xl border border-danger/30 bg-red-50 text-red-800">
+                <XCircle className="w-5 h-5 shrink-0 mt-0.5 text-danger" strokeWidth={2.2} />
+                <p className="text-sm leading-relaxed">
+                  <strong className="font-semibold">Request rejected.</strong> {state.reason}
+                </p>
+              </div>}
+          </div>
+        </div>;
+    }
     return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <div className="absolute -top-32 -left-32 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />

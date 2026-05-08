@@ -6,6 +6,12 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const AGENT_DIR = process.env.AGENT_DIR ? resolve(process.env.AGENT_DIR) : resolve(__dirname, "..", "..", "agent");
 const ALLOWED_AGENT_FILES = new Set<string>(["agent.js", "package.json", "install.ps1", "uninstall.ps1", "icon.ico"]);
 const BOOTSTRAP_DOWNLOAD_LIST = ["agent.js", "package.json", "install.ps1", "uninstall.ps1", "icon.ico"];
+const AGENT_MIME: Record<string, string> = {
+  ".js":   "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".ps1":  "text/plain; charset=utf-8",
+  ".ico":  "image/x-icon",
+};
 export function isInstallPath(pathname: string): boolean {
   return pathname === "/install/bootstrap.ps1" || pathname.startsWith("/install/agent/");
 }
@@ -61,7 +67,8 @@ async function serveAgentFile(_req: IncomingMessage, res: ServerResponse, pathna
     }).end("Not found");
     return;
   }
-  const mime = name.endsWith(".js") ? "application/javascript; charset=utf-8" : name.endsWith(".json") ? "application/json; charset=utf-8" : name.endsWith(".ps1") ? "text/plain; charset=utf-8" : name.endsWith(".ico") ? "image/x-icon" : "application/octet-stream";
+  const ext = name.slice(name.lastIndexOf("."));
+  const mime = AGENT_MIME[ext] ?? "application/octet-stream";
   res.writeHead(200, {
     "Content-Type": mime,
     "Cache-Control": "public, max-age=300"

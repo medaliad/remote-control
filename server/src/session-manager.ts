@@ -258,17 +258,19 @@ export class SessionManager {
   }
   private teardown(session: Session): WebSocket[] {
     const toNotify: WebSocket[] = [];
-    if (session.clientWs) toNotify.push(session.clientWs);
-    for (const req of session.pending.values()) toNotify.push(req.ws);
-    for (const ws of [session.hostWs, session.clientWs, ...[...session.pending.values()].map(r => r.ws)]) {
+    const pendingWs = [...session.pending.values()].map(r => r.ws);
+
+    for (const ws of [session.hostWs, session.clientWs, ...pendingWs]) {
       if (!ws) continue;
-      const c = this.contexts.get(ws);
-      if (c) {
-        c.sessionCode = null;
-        c.role = null;
-        c.pendingRequestId = null;
+      const ctx = this.contexts.get(ws);
+      if (ctx) {
+        ctx.sessionCode = null;
+        ctx.role = null;
+        ctx.pendingRequestId = null;
       }
+      if (ws !== session.hostWs) toNotify.push(ws);
     }
+
     this.byCode.delete(session.code);
     return toNotify;
   }

@@ -11,6 +11,9 @@ const VB6_PORT = 8765;
 const WS_HOST = "127.0.0.1";
 const WS_PORT = 8766;
 const PROGRAM_NAME = "VEAdminAgent";
+const LOOPBACK_ADDRS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const VB6_RECONNECT_DELAY_MS = 1500;
+const AGENT_HEARTBEAT_INTERVAL_MS = 25_000;
 function userDataDir() {
   if (process.platform === "win32") {
     return path.join(process.env.LOCALAPPDATA || os.homedir(), PROGRAM_NAME);
@@ -661,7 +664,7 @@ function createVB6Backend() {
       if (!reconnectTimer) reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connect();
-      }, 1500);
+      }, VB6_RECONNECT_DELAY_MS);
     };
     tcp.on("close", onClosed);
     tcp.on("error", err => {
@@ -697,6 +700,7 @@ if (!backend) {
 }
 console.log(`[agent] backend: ${backend.label}`);
 const clamp01 = v => Math.max(0, Math.min(1, Number(v) || 0));
+const KEY_MAP = process.platform === "linux" ? KEY_CODE_TO_XDO : KEY_CODE_TO_VK;
 let lastMoveX = -1;
 let lastMoveY = -1;
 function translate(ev) {
@@ -721,9 +725,7 @@ function translate(ev) {
     return [`SCROLL ${delta}`];
   }
   if (ev.t === "key") {
-    const platform = process.platform;
-    const map = platform === "linux" ? KEY_CODE_TO_XDO : KEY_CODE_TO_VK;
-    const token = map[ev.code];
+    const token = KEY_MAP[ev.code];
     if (token !== undefined) {
       if (ev.kind === "down") return [`KEYDOWN ${token}`];
       if (ev.kind === "up") return [`KEYUP ${token}`];
@@ -754,14 +756,14 @@ function autopairWsUrl(base) {
 }
 function hostPageUrl(token) {
   if (HOST_PAGE_URL) {
-    const sep = HOST_PAGE_URL.includes("?") ? "&" : "?";
     const hashIdx = HOST_PAGE_URL.indexOf("#");
     if (hashIdx >= 0) {
       const before = HOST_PAGE_URL.slice(0, hashIdx);
       const hash = HOST_PAGE_URL.slice(hashIdx);
-      const innerSep = hash.includes("?") ? "&" : "?";
-      return `${before}${hash}${innerSep}token=${encodeURIComponent(token)}`;
+      const sep = hash.includes("?") ? "&" : "?";
+      return `${before}${hash}${sep}token=${encodeURIComponent(token)}`;
     }
+    const sep = HOST_PAGE_URL.includes("?") ? "&" : "?";
     return `${HOST_PAGE_URL}${sep}token=${encodeURIComponent(token)}`;
   }
   if (!AUTOPAIR_URL) return "";
@@ -828,7 +830,7 @@ function connectAutopair() {
           type: "agent:ping"
         }));
       } catch {}
-    }, 25_000);
+    }, AGENT_HEARTBEAT_INTERVAL_MS);
   });
   ws.on("message", buf => {
     let msg;
@@ -900,7 +902,7 @@ function buildWss() {
         return done(false, 403, "Origin not allowed");
       }
       const ip = req.socket.remoteAddress;
-      if (ip !== "127.0.0.1" && ip !== "::1" && ip !== "::ffff:127.0.0.1") {
+      if (!LOOPBACK_ADDRS.has(ip)) {
         console.warn(`[agent] rejecting non-loopback caller ${ip}`);
         return done(false, 403, "Loopback only");
       }

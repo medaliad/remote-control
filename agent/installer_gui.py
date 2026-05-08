@@ -54,6 +54,15 @@ TEXT_500           = "#64748B"
 TEXT_400           = "#94A3B8"
 LINE               = "#E2E8F0"
 
+
+STATE_STYLES = {
+    "idle":     {"dot": "#94A3B8", "bg": "#F1F5F9", "fg": "#475569", "label": "Idle"},
+    "working":  {"dot": "#F59E0B", "bg": "#FEF3C7", "fg": "#92400E", "label": "Working..."},
+    "running":  {"dot": "#10B981", "bg": "#D1FAE5", "fg": "#065F46", "label": "Running"},
+    "stopped":  {"dot": "#94A3B8", "bg": "#F1F5F9", "fg": "#475569", "label": "Stopped"},
+    "failed":   {"dot": "#EF4444", "bg": "#FEE2E2", "fg": "#991B1B", "label": "Failed"},
+}
+
 HEADING  = "Connect Your PC to VE Admin for Remote Support"
 SUBTITLE = (
    "Enter the username and password for this machine. The installer will automatically set up everything needed. After clicking Start, your manager can securely access and control your PC remotely to help monitor and fix any PMC-related issues."
@@ -61,6 +70,21 @@ SUBTITLE = (
 
 IS_WIN = sys.platform.startswith("win")
 NO_WIN = 0x08000000 if IS_WIN else 0
+
+
+LOG_FONT_FAMILY  = "Consolas" if IS_WIN else "Menlo"
+LOG_FONT_SIZE    = 9
+
+
+STATUS_CHECK_TIMEOUT_S = 5
+POLL_INTERVAL_MS       = 4000
+DRAIN_INTERVAL_MS      = 100
+
+
+TASK_STATE_PS_CMD = (
+    "(Get-ScheduledTask -TaskName '" + TASK_NAME + "' "
+    "-ErrorAction SilentlyContinue).State"
+)
 
 
 def resource_dir() -> Path:
@@ -192,8 +216,8 @@ class InstallerApp:
         root.title(APP_TITLE)
 
 
-        root.geometry("620x680")
-        root.minsize(560, 620)
+        root.geometry("720x700")
+        root.minsize(640, 640)
         root.configure(bg=BG_CANVAS)
 
         ico = find_icon()
@@ -207,9 +231,9 @@ class InstallerApp:
         base_family = "Segoe UI" if IS_WIN else "Helvetica"
 
 
-        self._font_h1   = (base_family, 22, "bold")
+        self._font_h1   = (base_family, 24, "bold")
         self._font_body = (base_family, 11)
-        self._font_lbl  = (base_family, 8, "bold")
+        self._font_lbl  = (base_family, 9, "bold")
         self._font_btn  = (base_family, 11, "bold")
         self._font_sub  = (base_family, 10)
         self._font_micro = (base_family, 9)
@@ -312,14 +336,14 @@ class InstallerApp:
 
 
         card_wrap = tk.Frame(outer, bg=BG_CANVAS)
-        card_wrap.pack(fill="both", expand=True, padx=32, pady=(28, 24))
+        card_wrap.pack(fill="both", expand=True, padx=40, pady=(32, 28))
 
         card = tk.Frame(card_wrap, bg=SURFACE, highlightthickness=1,
                         highlightbackground=LINE)
         card.pack(fill="both", expand=True)
 
         inner = tk.Frame(card, bg=SURFACE)
-        inner.pack(fill="both", expand=True, padx=36, pady=32)
+        inner.pack(fill="both", expand=True, padx=44, pady=36)
 
 
         tk.Label(
@@ -333,57 +357,66 @@ class InstallerApp:
         ).pack(fill="x", pady=(8, 24))
 
 
-        tk.Label(
-            inner, text="USERNAME", bg=SURFACE, fg=TEXT_500,
-            font=self._font_lbl, anchor="w",
-        ).pack(fill="x")
         prefilled_user = (
             saved_username_from_registry()
             or saved_username_from_config()
             or os_username_default()
         )
+        prefilled_pwd = (
+            saved_password_from_registry()
+            or saved_password_from_config()
+        )
         self.user_var = tk.StringVar(value=prefilled_user)
+        self.pwd_var = tk.StringVar(value=prefilled_pwd)
+        self._pwd_visible = tk.BooleanVar(value=False)
+
+
+        creds = tk.Frame(inner, bg=SURFACE)
+        creds.pack(fill="x", pady=(0, 28))
+        creds.grid_columnconfigure(0, weight=1, uniform="creds_col")
+        creds.grid_columnconfigure(1, weight=0, minsize=24)
+        creds.grid_columnconfigure(2, weight=1, uniform="creds_col")
+
+
+        tk.Label(
+            creds, text="USERNAME", bg=SURFACE, fg=TEXT_500,
+            font=self._font_lbl, anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
+
         self.user_entry = ttk.Entry(
-            inner, textvariable=self.user_var, style="Brand.TEntry",
+            creds, textvariable=self.user_var, style="Brand.TEntry",
             font=self._font_body,
         )
+        self.user_entry.grid(row=1, column=0, sticky="ew", pady=(8, 6), ipady=8)
 
-
-        self.user_entry.pack(fill="x", pady=(8, 6), ipady=6)
         tk.Label(
-            inner,
+            creds,
             text="Lowercased automatically. The manager looks up this name to open a session.",
             bg=SURFACE, fg=TEXT_400, font=self._font_micro,
-            anchor="w", justify="left",
-        ).pack(fill="x", pady=(0, 18))
+            anchor="w", justify="left", wraplength=300,
+        ).grid(row=2, column=0, sticky="ew")
 
 
-        pwd_header = tk.Frame(inner, bg=SURFACE)
-        pwd_header.pack(fill="x")
+        pwd_header = tk.Frame(creds, bg=SURFACE)
+        pwd_header.grid(row=0, column=2, sticky="ew")
         tk.Label(
             pwd_header, text="PASSWORD", bg=SURFACE, fg=TEXT_500,
             font=self._font_lbl, anchor="w",
         ).pack(side="left")
-        self._pwd_visible = tk.BooleanVar(value=False)
+
         def _toggle_pwd():
             self.pwd_entry.configure(show="" if self._pwd_visible.get() else "*")
+
         ttk.Checkbutton(
             pwd_header, text="Show", variable=self._pwd_visible,
             command=_toggle_pwd, style="Brand.TCheckbutton",
         ).pack(side="right")
 
-        prefilled_pwd = (
-            saved_password_from_registry()
-            or saved_password_from_config()
-        )
-        self.pwd_var = tk.StringVar(value=prefilled_pwd)
         self.pwd_entry = ttk.Entry(
-            inner, textvariable=self.pwd_var, show="*",
+            creds, textvariable=self.pwd_var, show="*",
             style="Brand.TEntry", font=self._font_body,
         )
-
-
-        self.pwd_entry.pack(fill="x", pady=(8, 28), ipady=6)
+        self.pwd_entry.grid(row=1, column=2, sticky="ew", pady=(8, 6), ipady=8)
 
 
         self.url_var = tk.StringVar(value=DEFAULT_URL)
@@ -409,10 +442,51 @@ class InstallerApp:
 
 
         self.status = tk.StringVar(value="Idle.")
-        tk.Label(
-            inner, textvariable=self.status, bg=SURFACE, fg=TEXT_500,
-            font=self._font_sub, anchor="w",
-        ).pack(fill="x", pady=(14, 0))
+
+
+        status_row = tk.Frame(inner, bg=SURFACE)
+        status_row.pack(fill="x", pady=(14, 0))
+
+        self._status_pill = tk.Frame(
+            status_row, bg=STATE_STYLES["idle"]["bg"],
+            highlightthickness=0, bd=0,
+        )
+        self._status_pill.pack(side="left")
+
+        self._status_dot = tk.Canvas(
+            self._status_pill, width=10, height=10,
+            bg=STATE_STYLES["idle"]["bg"],
+            highlightthickness=0, bd=0,
+        )
+        self._status_dot.pack(side="left", padx=(10, 6), pady=6)
+
+        self._status_dot_id = self._status_dot.create_oval(
+            1, 1, 9, 9,
+            fill=STATE_STYLES["idle"]["dot"],
+            outline=STATE_STYLES["idle"]["dot"],
+        )
+
+        self._status_label = tk.Label(
+            self._status_pill,
+            text=STATE_STYLES["idle"]["label"],
+            bg=STATE_STYLES["idle"]["bg"],
+            fg=STATE_STYLES["idle"]["fg"],
+            font=self._font_lbl,
+        )
+        self._status_label.pack(side="left", padx=(0, 12), pady=6)
+
+
+        self._status_detail = tk.Label(
+            status_row, textvariable=self.status,
+            bg=SURFACE, fg=TEXT_500, font=self._font_sub,
+            anchor="w", justify="left",
+        )
+        self._status_detail.pack(side="left", padx=(10, 0))
+
+
+        self._status_state = "idle"
+        self._pulse_phase = 0
+        self._pulse_after_id = None
 
 
         self._log_visible = tk.BooleanVar(value=False)
@@ -430,7 +504,7 @@ class InstallerApp:
         self.log_widget = scrolledtext.ScrolledText(
             self._log_holder, height=10, wrap="word", state="disabled",
             bg="#0F172A", fg="#E2E8F0", insertbackground="#E2E8F0",
-            font=("Consolas" if IS_WIN else "Menlo", 9),
+            font=(LOG_FONT_FAMILY, LOG_FONT_SIZE),
             borderwidth=0, highlightthickness=1, highlightbackground=LINE,
         )
         self.log_widget.pack(fill="both", expand=True)
@@ -440,6 +514,7 @@ class InstallerApp:
 
         self.root.after(100, self._drain_log)
         self._refresh_buttons()
+        self.root.after(1500, self._poll_status)
 
     def _toggle_log(self):
         """Show/hide the dark log panel under the form. Hidden by default
@@ -454,56 +529,118 @@ class InstallerApp:
             try:
                 cur_w = self.root.winfo_width()
                 cur_h = self.root.winfo_height()
-                if cur_h < 820:
-                    self.root.geometry(f"{max(cur_w, 560)}x820")
+                if cur_h < 860:
+                    self.root.geometry(f"{max(cur_w, 720)}x860")
             except Exception:
                 pass
         else:
             self._log_holder.pack_forget()
 
+    def _set_status_state(self, state, detail=None):
+        """Update the colored status pill (idle / working / running / stopped /
+        failed) and, optionally, the detail line beside it. Pure UI: never
+        affects the install / stop / uninstall flow."""
+        if state not in STATE_STYLES:
+            state = "idle"
+        s = STATE_STYLES[state]
+        try:
+            self._status_pill.configure(bg=s["bg"])
+            self._status_dot.configure(bg=s["bg"])
+            self._status_dot.itemconfigure(
+                self._status_dot_id, fill=s["dot"], outline=s["dot"],
+            )
+            self._status_label.configure(
+                bg=s["bg"], fg=s["fg"], text=s["label"],
+            )
+        except tk.TclError:
+
+            return
+        self._status_state = state
+        if detail is not None:
+            self.status.set(detail)
+
+
+        if self._pulse_after_id is not None:
+            try:
+                self.root.after_cancel(self._pulse_after_id)
+            except Exception:
+                pass
+            self._pulse_after_id = None
+        if state == "running":
+            self._pulse_phase = 0
+            self._pulse_running_dot()
+
+    def _pulse_running_dot(self):
+        """Soft fade between the brand green and a slightly lighter shade so
+        users can tell at a glance the indicator is live, not a stale UI
+        snapshot. Cosmetic only."""
+        if self._status_state != "running":
+            return
+        shades = ["#10B981", "#34D399", "#10B981", "#059669"]
+        color = shades[self._pulse_phase % len(shades)]
+        try:
+            self._status_dot.itemconfigure(
+                self._status_dot_id, fill=color, outline=color,
+            )
+        except tk.TclError:
+            return
+        self._pulse_phase += 1
+        self._pulse_after_id = self.root.after(700, self._pulse_running_dot)
+
     def log(self, msg):
         self.log_queue.put(msg)
 
     def _drain_log(self):
+        """Pull every queued line in one shot and append them in a single
+        Tk text-widget write. Cheaper than the previous per-line
+        configure/insert/configure cycle when npm install or the autopair
+        bring-up flushes a burst of output."""
+        lines = []
         try:
             while True:
-                line = self.log_queue.get_nowait()
-                self.log_widget.configure(state="normal")
-                self.log_widget.insert("end", line + "\n")
-                self.log_widget.see("end")
-                self.log_widget.configure(state="disabled")
+                lines.append(self.log_queue.get_nowait())
         except queue.Empty:
             pass
-        self.root.after(100, self._drain_log)
+        if lines:
+            self.log_widget.configure(state="normal")
+            self.log_widget.insert("end", "\n".join(lines) + "\n")
+            self.log_widget.see("end")
+            self.log_widget.configure(state="disabled")
+        self.root.after(DRAIN_INTERVAL_MS, self._drain_log)
+
+    @staticmethod
+    def _format_cmd_for_log(cmd, hide_args):
+        """Render `cmd` as a single shell-style string for the log panel,
+        masking any value whose preceding token is in `hide_args` (we use
+        this to keep -Password out of the visible log)."""
+        if not isinstance(cmd, (list, tuple)):
+            return str(cmd)
+        out = []
+        cmd_list = list(cmd)
+        i = 0
+        while i < len(cmd_list):
+            tok = str(cmd_list[i])
+            out.append(tok)
+            if tok in hide_args and i + 1 < len(cmd_list):
+                out.append("***")
+                i += 2
+                continue
+            i += 1
+        return " ".join(out)
 
     def _run_stream(self, cmd, cwd=None, shell=False, hide_args=None):
-
-
         hide_args = hide_args or set()
-        if isinstance(cmd, (list, tuple)):
-            display = []
-            i = 0
-            cmd_list = list(cmd)
-            while i < len(cmd_list):
-                tok = str(cmd_list[i])
-                display.append(tok)
-                if tok in hide_args and i + 1 < len(cmd_list):
-                    display.append("***")
-                    i += 2
-                    continue
-                i += 1
-            self.log("$ " + " ".join(display))
-        else:
-            self.log("$ " + str(cmd))
-        proc = subprocess.Popen(
+        self.log("$ " + self._format_cmd_for_log(cmd, hide_args))
+
+
+        with subprocess.Popen(
             cmd, cwd=cwd, shell=shell,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             creationflags=NO_WIN,
-        )
-        for line in proc.stdout:
-            self.log(line.rstrip())
-        proc.wait()
-        return proc.returncode
+        ) as proc:
+            for line in proc.stdout:
+                self.log(line.rstrip())
+            return proc.wait()
 
     def _run_powershell(self, ps_args, hide_args=None):
         return self._run_stream(
@@ -536,14 +673,14 @@ class InstallerApp:
             return
         self.user_var.set(username)
         self._lock_form(True)
-        self.status.set("Installing...")
+        self._set_status_state("working", "Installing...")
         self.worker = threading.Thread(
             target=self._do_install, args=(url, username, password), daemon=True,
         )
         self.worker.start()
 
     def on_stop(self):
-        self.status.set("Stopping agent...")
+        self._set_status_state("working", "Stopping agent...")
         self.worker = threading.Thread(target=self._do_stop, daemon=True)
         self.worker.start()
 
@@ -555,7 +692,7 @@ class InstallerApp:
         ):
             return
         self._lock_form(True)
-        self.status.set("Uninstalling...")
+        self._set_status_state("working", "Uninstalling...")
         self.worker = threading.Thread(target=self._do_uninstall, daemon=True)
         self.worker.start()
 
@@ -597,11 +734,26 @@ class InstallerApp:
             self._wait_for_port_listen(AGENT_PORT, timeout_s=15)
             self.log("[done] install complete - agent is running and will "
                      "auto-start on every login.")
-            self.status.set(f"Registered as: {username}")
+            self.root.after(
+                0,
+                lambda u=username: self._set_status_state(
+                    "running", f"Agent started - registered as: {u}",
+                ),
+            )
         except Exception as e:
             self.log(f"[error] {e}")
-            self.status.set("Failed. See log.")
-            messagebox.showerror(APP_TITLE, str(e))
+            err_text = str(e)
+            self.root.after(
+                0,
+                lambda: self._set_status_state(
+                    "failed", "Failed. See log.",
+                ),
+            )
+
+            self.root.after(
+                0,
+                lambda msg=err_text: messagebox.showerror(APP_TITLE, msg),
+            )
         finally:
             self.root.after(0, self._refresh_buttons)
             self.root.after(0, lambda: self._lock_form(False))
@@ -717,10 +869,16 @@ class InstallerApp:
             ])
             self.log("[..] killing port + any stray agent processes...")
             self._kill_port(AGENT_PORT)
-            self.status.set("Agent stopped.")
+            self.root.after(
+                0,
+                lambda: self._set_status_state("stopped", "Agent stopped."),
+            )
         except Exception as e:
             self.log(f"[error] {e}")
-            self.status.set("Stop failed. See log.")
+            self.root.after(
+                0,
+                lambda: self._set_status_state("failed", "Stop failed. See log."),
+            )
         finally:
             self.root.after(0, self._refresh_buttons)
 
@@ -753,10 +911,18 @@ class InstallerApp:
             self.log("[..] post-uninstall: final port + process sweep...")
             self._kill_port(AGENT_PORT)
             self.log("[done] uninstalled.")
-            self.status.set("Uninstalled.")
+            self.root.after(
+                0,
+                lambda: self._set_status_state("idle", "Uninstalled."),
+            )
         except Exception as e:
             self.log(f"[error] {e}")
-            self.status.set("Uninstall failed. See log.")
+            self.root.after(
+                0,
+                lambda: self._set_status_state(
+                    "failed", "Uninstall failed. See log.",
+                ),
+            )
         finally:
             self.root.after(0, self._refresh_buttons)
             self.root.after(0, lambda: self._lock_form(False))
@@ -901,20 +1067,76 @@ class InstallerApp:
             raise RuntimeError(f"install.ps1 exited with code {rc}")
 
     def _refresh_buttons(self):
+        """Kick off a non-blocking refresh. The previous implementation ran
+        powershell.exe synchronously on the Tk event loop, which froze the
+        GUI for 200-500ms each tick. The actual probe now runs on a worker
+        thread; results are marshaled back via root.after, and an in-flight
+        flag stops overlapping refreshes from spawning duplicate processes."""
+        if getattr(self, "_status_check_in_flight", False):
+            return
+        self._status_check_in_flight = True
+        threading.Thread(
+            target=self._check_running_state, daemon=True,
+        ).start()
+
+    def _check_running_state(self):
+        """Worker-thread probe of the VEAdminAgent scheduled-task state.
+        Bounded by STATUS_CHECK_TIMEOUT_S so a stuck powershell.exe can't
+        wedge the poll forever. Always hands off to the UI thread for the
+        actual widget updates."""
         running = False
         try:
             r = subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "(Get-ScheduledTask -TaskName '" + TASK_NAME + "' "
-                 "-ErrorAction SilentlyContinue).State"],
+                ["powershell", "-NoProfile", "-Command", TASK_STATE_PS_CMD],
                 capture_output=True, text=True, creationflags=NO_WIN,
+                timeout=STATUS_CHECK_TIMEOUT_S,
             )
             running = "Running" in (r.stdout or "")
         except Exception:
             pass
+        finally:
+            self._status_check_in_flight = False
+        try:
+            self.root.after(0, self._apply_button_state, running)
+        except tk.TclError:
+
+            pass
+
+    def _apply_button_state(self, running):
+        """UI-thread half of the running-state refresh: button enable/disable
+        plus best-effort status-pill sync. Pure UI."""
         self.btn_install.configure(state="normal")
         self.btn_stop.configure(state="normal" if running else "disabled")
         self.btn_uninstall.configure(state="normal")
+
+
+        if self._status_state in ("working", "failed"):
+            return
+        if running and self._status_state != "running":
+            saved = (
+                saved_username_from_registry()
+                or saved_username_from_config()
+            )
+            detail = (
+                f"Agent started - registered as: {saved}"
+                if saved else "Agent started."
+            )
+            self._set_status_state("running", detail)
+        elif (not running) and self._status_state == "running":
+
+            self._set_status_state("stopped", "Agent is not running.")
+
+    def _poll_status(self):
+        """Periodic indicator sync. The actual probe is async (see
+        _refresh_buttons), so this method itself is cheap — it just
+        re-queues itself and avoids piling up checks while a worker
+        install/stop/uninstall is in progress."""
+        try:
+            if not (self.worker and self.worker.is_alive()):
+                self._refresh_buttons()
+        except Exception:
+            pass
+        self.root.after(POLL_INTERVAL_MS, self._poll_status)
 
 
 def main():

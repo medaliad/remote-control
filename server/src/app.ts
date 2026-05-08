@@ -38,6 +38,8 @@ export interface AppInstance {
   close(): Promise<void>;
 }
 
+type LiveWs = WebSocket & { isAlive?: boolean };
+
 interface PresenceEntry {
   user: string;
   displayName: string;
@@ -291,8 +293,8 @@ export function createApp(config: AppConfig = {}): AppInstance {
 
   wss.on("connection", (ws: WebSocket) => {
     sessions.attach(ws);
-    (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
-    ws.on("pong", () => { (ws as WebSocket & { isAlive?: boolean }).isAlive = true; });
+    (ws as LiveWs).isAlive = true;
+    ws.on("pong", () => { (ws as LiveWs).isAlive = true; });
     ws.on("message", (buf) => handleMessage(ws, buf.toString("utf8")));
     ws.on("close", () => handleClose(ws));
     ws.on("error", (err) => console.warn("[ws] socket error:", err.message));
@@ -301,8 +303,8 @@ export function createApp(config: AppConfig = {}): AppInstance {
   // ─── /agent connection ───────────────────────────────────────────────────────
 
   agentWss.on("connection", (ws: WebSocket) => {
-    (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
-    ws.on("pong", () => { (ws as WebSocket & { isAlive?: boolean }).isAlive = true; });
+    (ws as LiveWs).isAlive = true;
+    ws.on("pong", () => { (ws as LiveWs).isAlive = true; });
     ws.on("message", (buf) => {
       let msg: AgentToServer;
       try {
@@ -531,7 +533,7 @@ export function createApp(config: AppConfig = {}): AppInstance {
   const pingInterval = setInterval(() => {
     for (const set of [wss.clients, agentWss.clients]) {
       for (const ws of set) {
-        const aliveWs = ws as WebSocket & { isAlive?: boolean };
+        const aliveWs = ws as LiveWs;
         if (aliveWs.isAlive === false) { try { ws.terminate(); } catch {} continue; }
         aliveWs.isAlive = false;
         try { ws.ping(); } catch {}

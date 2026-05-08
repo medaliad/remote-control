@@ -1,4 +1,5 @@
 import { MonitorPlay, Eye, Shield, ArrowRight, Sparkles } from "lucide-react";
+import { t } from "../i18n";
 interface Props {
   navigate: (to: "home" | "host" | "client") => void;
   embed?: boolean;
@@ -14,21 +15,19 @@ export function Home({
         <div className="relative">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/20 bg-primary-soft text-primary text-[11px] sm:text-xs font-medium tracking-wide mb-4 sm:mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Approval-first screen sharing</span>
+            <span>{t("nav.badge")}</span>
           </div>
 
           <h1 className="text-3xl xs:text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.05] mb-4 sm:mb-5">
-            <span className="text-gradient">Remote Access</span>
+            <span className="text-gradient">{t("home.title")}</span>
             <br />
             <span className="text-text700 text-xl xs:text-2xl sm:text-3xl md:text-4xl font-semibold">
-              with a click, not a backdoor.
+              {t("home.titleSub")}
             </span>
           </h1>
 
           <p className="text-sm sm:text-base md:text-lg text-text500 max-w-2xl leading-relaxed mb-7 sm:mb-10">
-            Share your screen with someone you trust, with an explicit approval
-            step on every connection. No auto-accept, no background sharing —
-            nothing happens without your click.
+            {t("home.intro")}
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-5">
@@ -43,11 +42,10 @@ export function Home({
                 <ArrowRight className="w-5 h-5 text-text400 group-hover:text-primary group-hover:translate-x-1 transition-all duration-300" />
               </div>
               <span className="relative text-base sm:text-lg font-semibold tracking-tight text-text900">
-                Share my screen (Host)
+                {t("home.host.title")}
               </span>
               <span className="relative text-[13px] sm:text-sm text-text500 leading-relaxed">
-                Generate a one-time code. A client must enter it and you must
-                approve their request before anything starts.
+                {t("home.host.desc")}
               </span>
             </a>
 
@@ -62,11 +60,10 @@ export function Home({
                 <ArrowRight className="w-5 h-5 text-text400 group-hover:text-primary group-hover:translate-x-1 transition-all duration-300" />
               </div>
               <span className="relative text-base sm:text-lg font-semibold tracking-tight text-text900">
-                View a shared screen (Client)
+                {t("home.client.title")}
               </span>
               <span className="relative text-[13px] sm:text-sm text-text500 leading-relaxed">
-                Enter the code the host gave you. You'll see "waiting for
-                approval" until they accept — then the screen appears.
+                {t("home.client.desc")}
               </span>
             </a>
           </div>
@@ -76,10 +73,8 @@ export function Home({
               <Shield className="w-4 h-4" strokeWidth={2.4} />
             </span>
             <p className="text-[13px] sm:text-sm text-text700 leading-relaxed">
-              <strong className="font-semibold text-text900">Privacy:</strong>{" "}
-              Your screen is shared directly with the viewer. The server only
-              handles the initial connection setup — your screen contents are
-              never stored or sent through it.
+              <strong className="font-semibold text-text900">{t("home.privacy.label")}</strong>{" "}
+              {t("home.privacy.body")}
             </p>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
 import { MonitorPlay, Copy, Link as LinkIcon, Check, X, PowerOff, AlertTriangle, Loader2, Shield, Activity, Cpu, ShieldCheck, CircleDot, KeyRound, PanelRightOpen, PanelRightClose, Mic, MicOff } from "lucide-react";
+import { t } from "../i18n";
 const AGENT_WS_URL = "ws://127.0.0.1:8766";
 type HostState = {
   kind: "idle";
@@ -184,7 +185,7 @@ export function HostPage({
     try {
       await sig.connect();
     } catch {
-      hardDisconnect("Could not reach the server.");
+      hardDisconnect(t("host.dc.serverUnreachable"));
       return;
     }
     sig.on("session:created", msg => {
@@ -194,7 +195,7 @@ export function HostPage({
       });
     });
     sig.on("request:incoming", msg => {
-      setIncomingLog(l => [`${fmtTime(msg.at)} — ${msg.clientName} asked to connect`, ...l].slice(0, 5));
+      setIncomingLog(l => [`${fmtTime(msg.at)} — ${msg.clientName}`, ...l].slice(0, 5));
       setState(s => {
         if (s.kind === "waiting") {
           return {
@@ -222,7 +223,7 @@ export function HostPage({
           a.play().catch(err => console.warn("[host] remote audio play():", err));
         },
         onConnectionStateChange: s => {
-          if (s === "failed" || s === "closed") hardDisconnect("The connection was closed.");
+          if (s === "failed" || s === "closed") hardDisconnect(t("host.dc.connectionClosed"));
         }
       });
       peerRef.current = peer;
@@ -241,7 +242,7 @@ export function HostPage({
         sig.send({
           type: "host:end"
         });
-        hardDisconnect("Screen share was cancelled.");
+        hardDisconnect(t("host.dc.shareCancelled"));
         return;
       }
       streamRef.current = stream;
@@ -249,7 +250,7 @@ export function HostPage({
       if (videoRef.current) videoRef.current.srcObject = stream;
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
         if (streamRef.current === stream) {
-          hardDisconnect("You stopped sharing your screen.");
+          hardDisconnect(t("host.dc.youStopped"));
         }
       });
       setState(s => s.kind === "request" || s.kind === "connecting" || s.kind === "waiting" ? {
@@ -280,15 +281,15 @@ export function HostPage({
         }
         return s;
       });
-      setIncomingLog(l => [`${fmtTime(Date.now())} — client left (${msg.reason})`, ...l].slice(0, 5));
+      setIncomingLog(l => [`${fmtTime(Date.now())} — ${t("host.event.clientLeft", { reason: msg.reason })}`, ...l].slice(0, 5));
     });
     sig.on("error", msg => {
       console.error("[host] server error:", msg);
-      setIncomingLog(l => [`${fmtTime(Date.now())} — error: ${msg.message}`, ...l].slice(0, 5));
+      setIncomingLog(l => [`${fmtTime(Date.now())} — ${t("host.event.error", { message: msg.message })}`, ...l].slice(0, 5));
     });
     sig.onceClosed().then(reason => {
       if (signalingRef.current === sig) {
-        hardDisconnect(`Connection closed: ${reason}`);
+        hardDisconnect(t("host.dc.connClosed", { reason }));
       }
     });
     if (autoPairToken) {
@@ -356,7 +357,7 @@ export function HostPage({
     signalingRef.current?.send({
       type: "host:end"
     });
-    hardDisconnect("You ended the session.");
+    hardDisconnect(t("host.dc.youEnded"));
   };
   const toggleControl = () => {
     const next = !allowControl;
@@ -382,7 +383,7 @@ export function HostPage({
         if (ok) {
           setMicOn(true);
         } else {
-          setMicError("Couldn't access the microphone. Check browser permissions.");
+          setMicError(t("host.micUnavailable.body"));
         }
       }
     } finally {
@@ -410,12 +411,12 @@ export function HostPage({
           <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
             {state.kind === "idle" && <div className="flex items-center gap-3">
                 <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
-                <p className="text-muted leading-relaxed">Preparing session…</p>
+                <p className="text-muted leading-relaxed">{t("host.idle.preparing")}</p>
               </div>}
             {state.kind === "disconnected" && <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
-                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                  <strong className="font-semibold">{t("host.idle.sessionEnded")}</strong> {state.reason}
                 </p>
               </div>}
           </div>
@@ -431,23 +432,22 @@ export function HostPage({
             </div>
 
             <h1 className="text-3xl font-bold tracking-tight mb-2">
-              Share your screen
+              {t("host.idle.title")}
             </h1>
             <p className="text-muted leading-relaxed mb-7">
-              Create a session and we'll give you a short code to share. Every
-              connection request will require your explicit approval.
+              {t("host.idle.intro")}
             </p>
 
             {state.kind === "disconnected" && <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800 animate-fade-in">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
-                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                  <strong className="font-semibold">{t("host.idle.sessionEnded")}</strong> {state.reason}
                 </p>
               </div>}
 
             <div className="flex flex-col gap-2 mb-7">
               <label htmlFor="hostName" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                Your display name (optional)
+                {t("host.idle.nameLabel")}
               </label>
               <input id="hostName" className="w-full px-4 py-3.5 rounded-xl bg-canvas border border-line text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15" value={hostName} onChange={e => setHostName(e.target.value)} maxLength={40} />
             </div>
@@ -456,7 +456,7 @@ export function HostPage({
               <span className="absolute inset-0 bg-gradient-to-r from-accent via-accent-hi to-accent bg-[length:200%_100%] animate-gradient-shift" />
               <span className="relative inline-flex items-center gap-2">
                 <MonitorPlay className="w-4 h-4" strokeWidth={2.4} />
-                Create session
+                {t("host.idle.create")}
               </span>
             </button>
           </div>
@@ -466,9 +466,9 @@ export function HostPage({
   if (state.kind === "creating") {
     return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
-          <StatusPill kind="waiting" label="Creating…" />
-          <h1 className="mt-5 text-3xl font-bold tracking-tight">Setting up your session</h1>
-          <p className="mt-2 text-muted leading-relaxed">Connecting to the server…</p>
+          <StatusPill kind="waiting" label={t("host.creating.label")} />
+          <h1 className="mt-5 text-3xl font-bold tracking-tight">{t("host.creating.title")}</h1>
+          <p className="mt-2 text-muted leading-relaxed">{t("host.creating.subtitle")}</p>
 
           <div className="mt-8 space-y-3">
             <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-canvas via-line to-canvas bg-[length:200%_100%] animate-shimmer" />
@@ -480,7 +480,7 @@ export function HostPage({
   }
   const code = state.code;
   const statusKind = state.kind === "connected" ? "connected" : state.kind === "request" ? "request" : "waiting";
-  const statusLabel = state.kind === "waiting" ? "Session created — waiting for a request" : state.kind === "request" ? `Incoming request from ${state.clientName}` : state.kind === "connecting" ? "Connecting…" : `Connected to ${state.clientName}`;
+  const statusLabel = state.kind === "waiting" ? t("host.waiting.statusPill") : state.kind === "request" ? t("host.request.statusPill", { name: state.clientName }) : state.kind === "connecting" ? t("host.connecting.statusPill") : t("host.connected.statusPill", { name: state.clientName });
   if (state.kind === "connected") {
     return <div className={["w-full animate-slide-up", embed ? "h-screen flex flex-col" : "max-w-[min(1600px,100%)] mx-auto flex flex-col"].join(" ")}>
         <div className={["relative flex flex-col flex-1 min-h-0", embed ? "bg-black" : "overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl"].join(" ")}>
@@ -489,27 +489,27 @@ export function HostPage({
               <StatusPill kind={statusKind} label={statusLabel} compact />
             </div>
             <div className="flex-1 min-w-[0.5rem]" />
-            <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? "Turn microphone off" : "Turn microphone on"} aria-label={micOn ? "Turn microphone off" : "Turn microphone on"} aria-pressed={micOn}>
+            <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-label={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-pressed={micOn}>
               {micBusy ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
-              <span className="hidden md:inline">{micOn ? "Mic on" : "Mic off"}</span>
+              <span className="hidden md:inline">{micOn ? t("host.connected.micOn") : t("host.connected.micOff")}</span>
             </button>
-            <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-expanded={sidePanelOpen}>
+            <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? t("host.connected.hideInfoTitle") : t("host.connected.showInfoTitle")} aria-label={sidePanelOpen ? t("host.connected.hideInfoTitle") : t("host.connected.showInfoTitle")} aria-expanded={sidePanelOpen}>
               {sidePanelOpen ? <PanelRightClose className="w-4 h-4" strokeWidth={2.2} /> : <PanelRightOpen className="w-4 h-4" strokeWidth={2.2} />}
-              <span className="hidden lg:inline">{sidePanelOpen ? "Hide info" : "Info"}</span>
+              <span className="hidden lg:inline">{sidePanelOpen ? t("host.connected.hideInfo") : t("host.connected.showInfo")}</span>
             </button>
-            <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20" onClick={endSession} title="End the screen-sharing session" aria-label="End session">
+            <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20" onClick={endSession} title={t("host.connected.endSession")} aria-label={t("host.connected.endSession")}>
               <PowerOff className="w-4 h-4" strokeWidth={2.4} />
-              <span className="hidden md:inline">End session</span>
+              <span className="hidden md:inline">{t("host.connected.endSession")}</span>
             </button>
           </div>
 
           {micError && <div className="flex items-start gap-3 p-3 sm:p-4 border-b border-danger/40 bg-red-50 text-red-800 animate-slide-up shrink-0">
               <AlertTriangle className="shrink-0 mt-0.5 w-5 h-5 text-danger" strokeWidth={2.2} />
               <div className="flex-1 min-w-0">
-                <strong className="text-sm font-semibold text-text900 block">Microphone unavailable</strong>
+                <strong className="text-sm font-semibold text-text900 block">{t("host.micUnavailable")}</strong>
                 <p className="mt-0.5 text-[12.5px] sm:text-[13px] leading-relaxed text-red-700/90">{micError}</p>
               </div>
-              <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>Dismiss</button>
+              <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>{t("host.dismiss")}</button>
             </div>}
 
           <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
@@ -518,34 +518,19 @@ export function HostPage({
               <AlertTriangle className={["shrink-0 mt-0.5 w-5 h-5", agentStatus === "down" ? "text-danger" : "text-warning"].join(" ")} strokeWidth={2.2} />
               <div className="flex-1 min-w-0">
                 <strong className="text-sm font-semibold text-text900 block">
-                  {agentStatus === "down" && "Remote cursor will not move — local agent is offline."}
-                  {agentStatus === "warming" && "Starting local agent… your cursor will respond in a moment."}
-                  {agentStatus === "connecting" && "Connecting to local agent…"}
-                  {agentStatus === "off" && "Local agent not started."}
+                  {agentStatus === "down" && t("host.warn.cursorOffline")}
+                  {agentStatus === "warming" && t("host.warn.starting")}
+                  {agentStatus === "connecting" && t("host.warn.connecting")}
+                  {agentStatus === "off" && t("host.warn.notStarted")}
                 </strong>
                 {agentStatus === "down" && <div className="mt-1.5 text-[12.5px] sm:text-[13px] leading-relaxed text-amber-700/90">
-                    The local helper isn’t reachable on this PC. Two things
-                    to check:
+                    {t("host.warn.fixIntro")}
                     <ol className="list-decimal pl-5 mt-1.5 space-y-0.5">
+                      <li>{t("host.warn.fix1")}</li>
                       <li>
-                        This page must be open on the <em>same</em> computer
-                        you want controlled. The helper only works locally — it
-                        cannot be reached from another machine.
-                      </li>
-                      <li>
-                        Install or restart the helper: open the{" "}
-                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                          agent
-                        </code>{" "}
-                        folder on this PC and double-click{" "}
-                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                          Setup.cmd
-                        </code>
-                        . If it’s already installed, run{" "}
-                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">
-                          Diagnose.cmd
-                        </code>{" "}
-                        for a one-screen status check.
+                        {t("host.warn.fix2.before")}
+                        <code className="font-mono text-text900 bg-white border border-line px-1.5 py-0.5 rounded">agent</code>
+                        {t("host.warn.fix2.after")}
                       </li>
                     </ol>
                   </div>}
@@ -564,14 +549,11 @@ export function HostPage({
                     <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
                     <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-red-500" />
                   </span>
-                  Live preview
+                  {t("host.connected.livePreview")}
                 </div>
               </div>
               {!embed && <p className="mt-2 sm:mt-3 text-[12.5px] sm:text-[13px] text-muted leading-relaxed px-1">
-                  This is the preview of what{" "}
-                  <strong className="text-text">{state.clientName}</strong> is
-                  seeing. You can stop at any time by clicking "End session"
-                  above or using your browser's native "Stop sharing" control.
+                  {t("host.connected.previewBlurb", { name: state.clientName })}
                 </p>}
             </div>
 
@@ -579,7 +561,7 @@ export function HostPage({
                 <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
                     <KeyRound className="w-3 h-3" strokeWidth={2.4} />
-                    Session
+                    {t("host.connected.session")}
                   </h3>
                   <p className="font-mono text-base sm:text-lg font-bold tracking-widest text-text">
                     {code}
@@ -590,11 +572,10 @@ export function HostPage({
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="font-semibold text-sm flex items-center gap-1.5">
                       <ShieldCheck className="w-3.5 h-3.5 text-accent-hi" strokeWidth={2.4} />
-                      Remote input
+                      {t("host.connected.remoteInput")}
                     </span>
                     <span className="text-xs text-muted leading-snug">
-                      Auto-enabled on approve. Flip OFF as a kill-switch
-                      (cursor stops responding instantly).
+                      {t("host.connected.remoteInputBlurb")}
                     </span>
                   </div>
                   <button role="switch" aria-checked={allowControl} onClick={toggleControl} className={["relative shrink-0 w-11 h-6 rounded-full border transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-accent/25", allowControl ? "bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow" : "bg-canvas border-border-hi"].join(" ")}>
@@ -605,41 +586,41 @@ export function HostPage({
                 {allowControl && <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4 animate-fade-in">
                     <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                       <Cpu className="w-3 h-3" strokeWidth={2.4} />
-                      Local mouse agent
+                      {t("host.connected.localAgent")}
                     </h3>
                     <div className="flex items-center gap-2 mb-2">
                       <AgentStatusDot status={agentStatus} />
                       <span className="text-xs font-semibold uppercase tracking-wider text-text">
-                        {agentStatus === "up" && "Ready"}
-                        {agentStatus === "warming" && "Warming"}
-                        {agentStatus === "connecting" && "Connecting"}
-                        {agentStatus === "down" && "Offline"}
-                        {agentStatus === "off" && "Idle"}
+                        {agentStatus === "up" && t("host.connected.agent.up")}
+                        {agentStatus === "warming" && t("host.connected.agent.warming")}
+                        {agentStatus === "connecting" && t("host.connected.agent.connecting")}
+                        {agentStatus === "down" && t("host.connected.agent.down")}
+                        {agentStatus === "off" && t("host.connected.agent.off")}
                       </span>
                     </div>
                     <p className="text-muted text-[12.5px] sm:text-[13px] leading-relaxed">
-                      {agentStatus === "up" && <>
-                        Mouse events are being injected
-                        {agentBackend ? <> via <code className="font-mono text-accent-hi">{agentBackend}</code></> : null}.
-                      </>}
-                      {agentStatus === "warming" && <>
-                        Agent connected, backend warming up.{" "}
-                        {agentBackend === "vb6" ? <>Start <code className="font-mono text-accent-hi">MouseControl.exe</code> — should attach within a second.</> : <>PowerShell is loading the Win32 wrapper — usually less than a second.</>}
-                      </>}
-                      {agentStatus === "connecting" && <>Connecting to local agent…</>}
-                      {agentStatus === "down" && <>
-                        Can't reach the local agent. Run <code className="font-mono text-accent-hi">npm start</code> inside <code className="font-mono text-accent-hi">agent/</code>.
-                      </>}
-                      {agentStatus === "off" && <>Toggle on to enable remote input control.</>}
+                      {agentStatus === "up" && (
+                        agentBackend
+                          ? t("host.connected.agent.upBlurb") + t("host.connected.agent.upBlurbVia", { backend: agentBackend })
+                          : t("host.connected.agent.upBlurb") + "."
+                      )}
+                      {agentStatus === "warming" && (
+                        agentBackend === "vb6"
+                          ? t("host.connected.agent.warmingBlurbVb6")
+                          : t("host.connected.agent.warmingBlurb")
+                      )}
+                      {agentStatus === "connecting" && t("host.connected.agent.connectingBlurb")}
+                      {agentStatus === "down" && t("host.connected.agent.downBlurb")}
+                      {agentStatus === "off" && t("host.connected.agent.offBlurb")}
                     </p>
                   </div>}
 
                 <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                     <Activity className="w-3 h-3" strokeWidth={2.4} />
-                    Recent events
+                    {t("host.connected.recentEvents")}
                   </h3>
-                  {incomingLog.length === 0 ? <p className="text-muted text-[13px] italic">No input received.</p> : <ul className="flex flex-col gap-1 font-mono text-[11.5px] leading-relaxed text-muted max-h-48 overflow-y-auto pr-1">
+                  {incomingLog.length === 0 ? <p className="text-muted text-[13px] italic">{t("host.connected.noEvents")}</p> : <ul className="flex flex-col gap-1 font-mono text-[11.5px] leading-relaxed text-muted max-h-48 overflow-y-auto pr-1">
                         {incomingLog.map((line, i) => <li key={i} className="truncate py-0.5 border-b border-line last:border-0" title={line}>
                             {line}
                           </li>)}
@@ -657,22 +638,22 @@ export function HostPage({
           <div className="flex-1 min-w-[1rem]" />
           <button className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20" onClick={endSession}>
             <PowerOff className="w-4 h-4" strokeWidth={2.4} />
-            <span className="hidden sm:inline">End session</span>
-            <span className="sm:hidden">End</span>
+            <span className="hidden sm:inline">{t("host.connected.endSession")}</span>
+            <span className="sm:hidden">{t("host.connected.endSession")}</span>
           </button>
         </div>
 
         {state.kind === "waiting" && <div className="animate-fade-in">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Waiting for a request</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">{t("host.waiting.title")}</h1>
             <p className="text-muted leading-relaxed mb-5 sm:mb-6 text-sm sm:text-base">
-              Share this code with the person who wants to view your screen.
+              {t("host.waiting.intro")}
             </p>
 
             <div className="relative overflow-hidden flex flex-col items-center gap-4 sm:gap-5 py-8 sm:py-10 px-4 sm:px-6 my-2 rounded-2xl border border-dashed border-accent/30 bg-gradient-to-b from-accent/[0.08] to-transparent">
               <div className="absolute inset-0 bg-dots opacity-40 pointer-events-none" />
               <span className="relative inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-hi">
                 <KeyRound className="w-3.5 h-3.5" strokeWidth={2.4} />
-                Session code
+                {t("host.waiting.codeLabel")}
               </span>
               <span className="relative font-mono font-bold text-4xl xs:text-5xl sm:text-6xl tracking-[0.25em] sm:tracking-[0.3em] text-gradient drop-shadow-[0_0_30px_rgba(0,139,249,0.18)] break-all text-center">
                 {code}
@@ -680,12 +661,12 @@ export function HostPage({
               <div className="relative flex flex-wrap items-center justify-center gap-2 sm:gap-3">
                 <button className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-accent-hi bg-accent/10 border border-accent/25 transition-all duration-200 hover:bg-accent/20 hover:border-accent/40" onClick={() => copyCode(code)}>
                   <Copy className="w-3.5 h-3.5" strokeWidth={2.4} />
-                  Copy code
+                  {t("host.waiting.copyCode")}
                 </button>
                 <button className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-accent-hi bg-accent/10 border border-accent/25 transition-all duration-200 hover:bg-accent/20 hover:border-accent/40" onClick={() => copyShareLink(code)}>
                   <LinkIcon className="w-3.5 h-3.5" strokeWidth={2.4} />
-                  <span className="hidden xs:inline">Copy share link</span>
-                  <span className="xs:hidden">Link</span>
+                  <span className="hidden xs:inline">{t("host.waiting.copyLink")}</span>
+                  <span className="xs:hidden">{t("host.waiting.linkShort")}</span>
                 </button>
               </div>
             </div>
@@ -693,22 +674,18 @@ export function HostPage({
             <div className="mt-5 sm:mt-6 flex items-start gap-3 p-3 sm:p-4 rounded-xl border border-accent/20 bg-accent/[0.06]">
               <Shield className="shrink-0 mt-0.5 w-5 h-5 text-accent-hi" strokeWidth={2.2} />
               <p className="text-[13px] sm:text-sm text-text700 leading-relaxed">
-                When they enter the code, you'll see their request here and can
-                approve or reject it.{" "}
-                <strong className="text-text900 font-semibold">Nothing is shared until you approve.</strong>
+                {t("host.waiting.shieldBody")}{" "}
+                <strong className="text-text900 font-semibold">{t("host.waiting.shieldHead")}</strong>
               </p>
             </div>
           </div>}
 
         {state.kind === "request" && <div className="animate-fade-in">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
-              Incoming connection request
+              {t("host.request.title")}
             </h1>
             <p className="text-muted leading-relaxed mb-5 sm:mb-6 text-sm sm:text-base">
-              <strong className="text-text">{state.clientName}</strong> is asking
-              to view your screen on session{" "}
-              <code className="font-mono text-accent-hi">{state.code}</code>.
-              You can approve or reject.
+              {t("host.request.intro", { name: state.clientName, code: state.code })}
             </p>
 
             <div className="relative overflow-hidden rounded-2xl border border-accent/60 bg-gradient-to-br from-accent/20 via-accent/10 to-transparent p-4 sm:p-6 animate-scale-in shadow-glow">
@@ -722,25 +699,24 @@ export function HostPage({
                     {state.clientName}
                   </span>
                   <span className="text-xs text-muted font-mono truncate">
-                    requesting access · session {state.code}
+                    {t("host.request.requestingMeta", { code: state.code })}
                   </span>
                 </div>
               </div>
               <div className="relative text-[13px] sm:text-sm text-muted leading-relaxed mb-4 sm:mb-5">
-                Approving will prompt you to pick a screen or window to share —
-                you can cancel at that step too.
+                {t("host.request.helper")}
               </div>
               <div className="relative flex flex-wrap gap-2 sm:gap-3">
                 <button className="group inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-white shadow-[0_0_30px_-6px_rgba(60,208,133,0.5)] transition-all duration-200 hover:-translate-y-[1px] focus:outline-none focus:ring-4 focus:ring-success/30 relative overflow-hidden" onClick={approveRequest}>
                   <span className="absolute inset-0 bg-gradient-to-r from-success to-success" />
                   <span className="relative inline-flex items-center gap-2">
                     <Check className="w-4 h-4" strokeWidth={2.8} />
-                    Approve &amp; share
+                    {t("host.request.approve")}
                   </span>
                 </button>
                 <button className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20" onClick={() => rejectRequest("rejected by host")}>
                   <X className="w-4 h-4" strokeWidth={2.6} />
-                  Reject
+                  {t("host.request.reject")}
                 </button>
               </div>
             </div>
@@ -749,10 +725,10 @@ export function HostPage({
         {state.kind === "connecting" && <div className="animate-fade-in">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 flex items-center gap-3">
               <Loader2 className="w-5 sm:w-6 h-5 sm:h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
-              Connecting…
+              {t("host.connecting.title")}
             </h1>
             <p className="text-muted leading-relaxed text-sm sm:text-base">
-              Please pick the screen or window you want to share.
+              {t("host.connecting.intro")}
             </p>
           </div>}
 

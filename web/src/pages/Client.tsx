@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
 import { Eye, User, KeyRound, ArrowRight, Loader2, AlertTriangle, XCircle, Volume2, VolumeX, Maximize2, Minimize2, PowerOff, Send, Lightbulb, MousePointerClick, Shield, PanelRightOpen, PanelRightClose, Mic, MicOff } from "lucide-react";
+import { t } from "../i18n";
 type ClientState = {
   kind: "idle";
 } | {
@@ -91,7 +92,7 @@ export function ClientPage({
     try {
       await sig.connect();
     } catch {
-      hardDisconnect("Could not reach the server.");
+      hardDisconnect(t("client.dc.serverUnreachable"));
       return;
     }
     sig.on("request:approved", () => {
@@ -101,7 +102,7 @@ export function ClientPage({
       } : s);
     });
     sig.on("request:rejected", msg => {
-      hardDisconnect(msg.reason || "The host rejected your request.", "rejected");
+      hardDisconnect(msg.reason || t("client.dc.hostRejected"), "rejected");
     });
     sig.on("peer:ready", msg => {
       const peer = new Peer(sig, "client", {
@@ -118,7 +119,7 @@ export function ClientPage({
           a.play().catch(err => console.warn("[client] remote audio play():", err));
         },
         onConnectionStateChange: s => {
-          if (s === "failed" || s === "closed") hardDisconnect("The connection was closed.");
+          if (s === "failed" || s === "closed") hardDisconnect(t("client.dc.connectionClosed"));
         },
         onChannelOpen: () => {
           peer.sendInput({
@@ -144,10 +145,10 @@ export function ClientPage({
       void peerRef.current?.handleRemoteSignal(msg.data);
     });
     sig.on("peer:left", msg => {
-      hardDisconnect(`Host left: ${msg.reason}`);
+      hardDisconnect(t("client.dc.hostLeft", { reason: msg.reason }));
     });
     sig.on("error", msg => {
-      const reason = msg.code === "invalid-code" ? "That code isn't valid. Ask the host for a new one." : msg.code === "session-full" ? "The host already has another viewer connected." : msg.code === "session-ended" ? "The host ended the session before you joined." : msg.message;
+      const reason = msg.code === "invalid-code" ? t("client.dc.invalidCode") : msg.code === "session-full" ? t("client.dc.sessionFull") : msg.code === "session-ended" ? t("client.dc.sessionEndedEarly") : msg.message;
       hardDisconnect(reason, "rejected");
     });
     sig.onceClosed().then(reason => {
@@ -155,7 +156,7 @@ export function ClientPage({
         if (s.kind === "connected" || s.kind === "connecting" || s.kind === "waiting" || s.kind === "requesting") {
           return {
             kind: "disconnected",
-            reason: `Connection closed: ${reason}`
+            reason: t("client.dc.connClosed", { reason })
           };
         }
         return s;
@@ -192,9 +193,9 @@ export function ClientPage({
     signalingRef.current?.send({
       type: "client:cancel"
     });
-    hardDisconnect("You cancelled the request.");
+    hardDisconnect(t("client.dc.cancelled"));
   };
-  const disconnect = () => hardDisconnect("You disconnected.");
+  const disconnect = () => hardDisconnect(t("client.dc.disconnected"));
   const toggleMuted = () => {
     const next = !muted;
     setMuted(next);
@@ -218,7 +219,7 @@ export function ClientPage({
         if (ok) {
           setMicOn(true);
         } else {
-          setMicError("Couldn't access the microphone. Check browser permissions.");
+          setMicError(t("host.micUnavailable.body"));
         }
       }
     } finally {
@@ -389,18 +390,18 @@ export function ClientPage({
           <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
             {state.kind === "idle" && <div className="flex items-center gap-3">
                 <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
-                <p className="text-muted leading-relaxed">Connecting…</p>
+                <p className="text-muted leading-relaxed">{t("client.idle.connecting")}</p>
               </div>}
             {state.kind === "disconnected" && <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
-                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                  <strong className="font-semibold">{t("client.sessionEnded")}</strong> {state.reason}
                 </p>
               </div>}
             {state.kind === "rejected" && <div className="flex items-start gap-3 p-4 rounded-xl border border-danger/30 bg-red-50 text-red-800">
                 <XCircle className="w-5 h-5 shrink-0 mt-0.5 text-danger" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
-                  <strong className="font-semibold">Request rejected.</strong> {state.reason}
+                  <strong className="font-semibold">{t("client.requestRejected")}</strong> {state.reason}
                 </p>
               </div>}
           </div>
@@ -415,39 +416,38 @@ export function ClientPage({
               <Eye className="w-6 h-6" strokeWidth={2.2} />
             </div>
 
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Join a session</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">{t("client.idle.title")}</h1>
             <p className="text-muted leading-relaxed mb-7">
-              Ask the host for their session code. The host has to approve your
-              request before anything is shared.
+              {t("client.idle.intro")}
             </p>
 
             {state.kind === "disconnected" && <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-warning/40 bg-amber-50 text-amber-800 animate-fade-in">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-warning" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
-                  <strong className="font-semibold">Session ended.</strong> {state.reason}
+                  <strong className="font-semibold">{t("client.sessionEnded")}</strong> {state.reason}
                 </p>
               </div>}
             {state.kind === "rejected" && <div className="flex items-start gap-3 mb-6 p-4 rounded-xl border border-danger/30 bg-red-50 text-red-800 animate-fade-in">
                 <XCircle className="w-5 h-5 shrink-0 mt-0.5 text-danger" strokeWidth={2.2} />
                 <p className="text-sm leading-relaxed">
-                  <strong className="font-semibold">Request rejected.</strong> {state.reason}
+                  <strong className="font-semibold">{t("client.requestRejected")}</strong> {state.reason}
                 </p>
               </div>}
 
             <div className="flex flex-col gap-2 mb-5">
               <label htmlFor="clientName" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                Your display name
+                {t("client.idle.nameLabel")}
               </label>
               <div className="relative">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-subtle pointer-events-none" strokeWidth={2.2} />
-                <input id="clientName" className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-canvas border border-line text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15" value={clientName} onChange={e => setClientName(e.target.value)} maxLength={40} placeholder="How should the host know you?" />
+                <input id="clientName" className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-canvas border border-line text-text placeholder:text-subtle outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15" value={clientName} onChange={e => setClientName(e.target.value)} maxLength={40} placeholder={t("client.idle.namePlaceholder")} />
               </div>
             </div>
 
             <div className="flex flex-col gap-2 mb-7">
               <label htmlFor="code" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted flex items-center gap-1.5">
                 <KeyRound className="w-3 h-3" strokeWidth={2.4} />
-                Session code
+                {t("client.idle.codeLabel")}
               </label>
               <input id="code" className="w-full px-4 py-4 rounded-xl bg-canvas border border-line text-center font-mono text-2xl font-bold tracking-[0.4em] uppercase outline-none transition-all duration-200 focus:border-accent focus:bg-surface-2 focus:ring-4 focus:ring-accent/15 placeholder:text-subtle/40 placeholder:tracking-[0.4em]" value={code} onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} maxLength={6} placeholder="ABC123" autoCapitalize="characters" autoCorrect="off" spellCheck={false} />
             </div>
@@ -456,7 +456,7 @@ export function ClientPage({
               <span className="absolute inset-0 bg-gradient-to-r from-accent via-accent-hi to-accent bg-[length:200%_100%] animate-gradient-shift" />
               <span className="relative inline-flex items-center gap-2">
                 <Send className="w-4 h-4" strokeWidth={2.4} />
-                Send connection request
+                {t("client.idle.send")}
                 <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5 group-disabled:translate-x-0" strokeWidth={2.4} />
               </span>
             </button>
@@ -467,14 +467,13 @@ export function ClientPage({
   if (state.kind === "requesting") {
     return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
-          <StatusPill kind="waiting" label="Sending request…" />
+          <StatusPill kind="waiting" label={t("client.requesting.statusPill")} />
           <h1 className="mt-5 text-3xl font-bold tracking-tight flex items-center gap-3">
             <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
-            Requesting connection
+            {t("client.requesting.title")}
           </h1>
           <p className="mt-2 text-muted leading-relaxed">
-            Connecting with code{" "}
-            <code className="font-mono text-accent-hi">{state.code}</code>.
+            {t("client.requesting.intro", { code: state.code })}
           </p>
         </div>
       </div>;
@@ -484,12 +483,11 @@ export function ClientPage({
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
           <div className="absolute -top-32 -right-32 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
           <div className="relative">
-            <StatusPill kind="waiting" label="Waiting for approval" />
+            <StatusPill kind="waiting" label={t("client.waiting.statusPill")} />
 
-            <h1 className="mt-5 text-3xl font-bold tracking-tight">Waiting for the host</h1>
+            <h1 className="mt-5 text-3xl font-bold tracking-tight">{t("client.waiting.title")}</h1>
             <p className="mt-2 text-muted leading-relaxed mb-6">
-              Your request reached the host. You'll see their screen as soon as
-              they approve. Feel free to cancel if you've changed your mind.
+              {t("client.waiting.intro")}
             </p>
 
             <div className="flex items-center justify-center gap-2 py-8 my-2 rounded-2xl border border-dashed border-accent/30 bg-gradient-to-b from-accent/[0.08] to-transparent">
@@ -505,16 +503,13 @@ export function ClientPage({
             <div className="mt-6 flex items-start gap-3 p-4 rounded-xl border border-accent/20 bg-accent/[0.06]">
               <Shield className="shrink-0 mt-0.5 w-5 h-5 text-accent-hi" strokeWidth={2.2} />
               <p className="text-sm text-text700 leading-relaxed">
-                Tell the host to look for{" "}
-                <strong className="text-text900 font-semibold">{clientName}</strong> in their
-                request list on session{" "}
-                <code className="font-mono text-accent-hi">{state.code}</code>.
+                {t("client.waiting.shield", { name: clientName, code: state.code })}
               </p>
             </div>
 
             <button className="mt-6 w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={cancel}>
               <XCircle className="w-4 h-4" strokeWidth={2.4} />
-              Cancel request
+              {t("client.waiting.cancel")}
             </button>
           </div>
         </div>
@@ -523,13 +518,13 @@ export function ClientPage({
   if (state.kind === "connecting") {
     return <div className="w-full max-w-lg animate-slide-up px-3 sm:px-0 m-auto">
         <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl p-6 sm:p-8 md:p-10">
-          <StatusPill kind="request" label="Approved — connecting…" />
+          <StatusPill kind="request" label={t("client.connecting.statusPill")} />
           <h1 className="mt-5 text-3xl font-bold tracking-tight flex items-center gap-3">
             <Loader2 className="w-6 h-6 text-accent-hi animate-spin" strokeWidth={2.4} />
-            Connecting to {state.code}
+            {t("client.connecting.title", { code: state.code })}
           </h1>
           <p className="mt-2 text-muted leading-relaxed mb-6">
-            Establishing the connection. This usually takes a second or two.
+            {t("client.connecting.intro")}
           </p>
 
           <div className="space-y-3 mb-6">
@@ -538,7 +533,7 @@ export function ClientPage({
           </div>
 
           <button className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={disconnect}>
-            Cancel
+            {t("client.connecting.cancel")}
           </button>
         </div>
       </div>;
@@ -547,51 +542,51 @@ export function ClientPage({
       <div className={["relative flex flex-col flex-1 min-h-0", embed ? "bg-black" : "overflow-hidden rounded-2xl sm:rounded-3xl glass-strong shadow-soft-xl"].join(" ")}>
         <div className={["flex items-center gap-2 sm:gap-3 shrink-0", embed ? "px-2 sm:px-4 py-2 bg-white/95 backdrop-blur border-b border-line" : "p-3 sm:p-5 md:p-6 pb-3 sm:pb-4 md:pb-5"].join(" ")}>
           <div className="flex items-center gap-2 min-w-0">
-            <StatusPill kind="connected" label={`Connected to ${state.code}`} compact />
-            {state.allowControl && <span className="hidden xs:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-[12.5px] font-medium bg-accent/15 border border-accent/30 text-accent-hi whitespace-nowrap" title="The host has granted you remote input.">
+            <StatusPill kind="connected" label={t("client.connected.statusPill", { code: state.code })} compact />
+            {state.allowControl && <span className="hidden xs:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-[12.5px] font-medium bg-accent/15 border border-accent/30 text-accent-hi whitespace-nowrap" title={t("client.connected.controlTitle")}>
                 <MousePointerClick className="w-3.5 h-3.5" strokeWidth={2.4} />
-                <span className="hidden sm:inline">Remote control on</span>
-                <span className="sm:hidden">Control</span>
+                <span className="hidden sm:inline">{t("client.connected.controlOn")}</span>
+                <span className="sm:hidden">{t("client.connected.controlShort")}</span>
               </span>}
           </div>
 
           <div className="flex-1 min-w-[0.5rem]" />
 
-          <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? "Turn microphone off" : "Turn microphone on"} aria-label={micOn ? "Turn microphone off" : "Turn microphone on"} aria-pressed={micOn}>
+          <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-label={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-pressed={micOn}>
             {micBusy ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
-            <span className="hidden md:inline">{micOn ? "Mic on" : "Mic off"}</span>
+            <span className="hidden md:inline">{micOn ? t("host.connected.micOn") : t("host.connected.micOff")}</span>
           </button>
 
-          <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={toggleMuted} title={muted ? "Unmute shared audio" : "Mute shared audio"} aria-label={muted ? "Unmute" : "Mute"}>
+          <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={toggleMuted} title={muted ? t("client.connected.unmuteTitle") : t("client.connected.muteTitle")} aria-label={muted ? t("client.connected.unmute") : t("client.connected.mute")}>
             {muted ? <VolumeX className="w-4 h-4" strokeWidth={2.2} /> : <Volume2 className="w-4 h-4" strokeWidth={2.2} />}
-            <span className="hidden md:inline">{muted ? "Unmute" : "Mute"}</span>
+            <span className="hidden md:inline">{muted ? t("client.connected.unmute") : t("client.connected.mute")}</span>
           </button>
 
-          <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"} aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
+          <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={toggleFullscreen} title={isFullscreen ? t("client.connected.exitFullscreenTitle") : t("client.connected.fullscreen")} aria-label={isFullscreen ? t("client.connected.exitFullscreen") : t("client.connected.fullscreen")}>
             {isFullscreen ? <Minimize2 className="w-4 h-4" strokeWidth={2.2} /> : <Maximize2 className="w-4 h-4" strokeWidth={2.2} />}
             <span className="hidden md:inline">
-              {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              {isFullscreen ? t("client.connected.exitFullscreen") : t("client.connected.fullscreen")}
             </span>
           </button>
 
-          <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-label={sidePanelOpen ? "Hide info panel" : "Show info panel"} aria-expanded={sidePanelOpen}>
+          <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? t("host.connected.hideInfoTitle") : t("host.connected.showInfoTitle")} aria-label={sidePanelOpen ? t("host.connected.hideInfoTitle") : t("host.connected.showInfoTitle")} aria-expanded={sidePanelOpen}>
             {sidePanelOpen ? <PanelRightClose className="w-4 h-4" strokeWidth={2.2} /> : <PanelRightOpen className="w-4 h-4" strokeWidth={2.2} />}
-            <span className="hidden lg:inline">{sidePanelOpen ? "Hide info" : "Info"}</span>
+            <span className="hidden lg:inline">{sidePanelOpen ? t("host.connected.hideInfo") : t("host.connected.showInfo")}</span>
           </button>
 
-          <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20" onClick={disconnect} title="Disconnect from the session" aria-label="Disconnect">
+          <button className="inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-sm text-red-700 bg-red-50 border border-danger/30 transition-all duration-200 hover:bg-red-100 hover:border-danger/50 focus:outline-none focus:ring-4 focus:ring-danger/20" onClick={disconnect} title={t("client.connected.disconnectTitle")} aria-label={t("client.connected.disconnect")}>
             <PowerOff className="w-4 h-4" strokeWidth={2.4} />
-            <span className="hidden md:inline">Disconnect</span>
+            <span className="hidden md:inline">{t("client.connected.disconnect")}</span>
           </button>
         </div>
 
         {micError && <div className="flex items-start gap-3 p-3 sm:p-4 border-b border-danger/40 bg-red-50 text-red-800 animate-slide-up shrink-0">
             <AlertTriangle className="shrink-0 mt-0.5 w-5 h-5 text-danger" strokeWidth={2.2} />
             <div className="flex-1 min-w-0">
-              <strong className="text-sm font-semibold text-text900 block">Microphone unavailable</strong>
+              <strong className="text-sm font-semibold text-text900 block">{t("host.micUnavailable")}</strong>
               <p className="mt-0.5 text-[12.5px] sm:text-[13px] leading-relaxed text-red-700/90">{micError}</p>
             </div>
-            <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>Dismiss</button>
+            <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>{t("host.dismiss")}</button>
           </div>}
 
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
@@ -608,11 +603,11 @@ export function ClientPage({
                   <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
                   <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-success" />
                 </span>
-                <span>Streaming</span>
+                <span>{t("client.connected.streaming")}</span>
               </div>
             </div>
             {!embed && <p className="mt-2 sm:mt-3 text-[12.5px] sm:text-[13px] text-muted leading-relaxed px-1">
-                {state.allowControl ? "Remote control is on — your clicks and keys are being forwarded to the host." : "View-only. The host controls whether your input is forwarded."}
+                {state.allowControl ? t("client.connected.controlBlurb") : t("client.connected.viewBlurb")}
               </p>}
           </div>
 
@@ -620,7 +615,7 @@ export function ClientPage({
               <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-1.5 flex items-center gap-1.5">
                   <KeyRound className="w-3 h-3" strokeWidth={2.4} />
-                  Session
+                  {t("client.connected.session")}
                 </h3>
                 <p className="font-mono text-base sm:text-lg font-bold tracking-widest text-text">
                   {state.code}
@@ -630,23 +625,20 @@ export function ClientPage({
               <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                   <MousePointerClick className="w-3 h-3" strokeWidth={2.4} />
-                  Input status
+                  {t("client.connected.inputStatus")}
                 </h3>
                 <p className="text-muted text-[12.5px] sm:text-[13px] leading-relaxed">
-                  {state.allowControl ? "The host has allowed your input. Click the video area to focus it, then interact as you would locally." : "The host hasn't enabled remote control. You can watch, but your clicks and keys stay on this page."}
+                  {state.allowControl ? t("client.connected.inputAllowed") : t("client.connected.inputBlocked")}
                 </p>
               </div>
 
               <div className="rounded-xl border border-line bg-canvas p-3 sm:p-4">
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted mb-2 flex items-center gap-1.5">
                   <Lightbulb className="w-3 h-3" strokeWidth={2.4} />
-                  Tips
+                  {t("client.connected.tips")}
                 </h3>
                 <p className="text-muted text-[12.5px] sm:text-[13px] leading-relaxed">
-                  If the video looks blurry, try resizing the window — the
-                  host's screen is scaled to fit. Click the video to focus it
-                  before typing, so keys route to the host. Audio plays if the
-                  host ticked "Share audio" in the browser picker.
+                  {t("client.connected.tipsBody")}
                 </p>
               </div>
             </aside>}

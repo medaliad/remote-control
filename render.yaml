@@ -1,18 +1,29 @@
-# Render Blueprint — one Node service hosting everything.
+# Render Blueprint - signaling web + self-hosted LiveKit for voice.
 #
-# This single web service:
-#   - Serves the built React app (web/dist) on `/`
-#   - Serves the signaling WebSocket on `/ws`
-#   - Serves a JSON `/health` endpoint for Render's health probe
+# Service 1: remote-access   (existing web + WebSocket signaling)
+#   - Serves the React app on /
+#   - Serves the signaling WebSocket on /ws + /agent
+#   - Mints LiveKit JWT tokens at /api/livekit/token
 #
-# Why one service instead of two:
-#   Keeping frontend and backend on the same origin sidesteps CORS *and*
-#   Mixed Content — the browser loads the page over HTTPS and opens the
-#   WebSocket over WSS on the same host, which browsers treat as secure
-#   by default.
+# Service 2: livekit         (the SFU that carries voice audio)
+#   - WebSocket signaling on TLS via $LIVEKIT_URL (wss://livekit-...onrender.com)
+#   - Media via TURN/TLS on the SAME port (Render only exposes one public TCP
+#     port per service, and does NOT expose UDP at all on standard plans). So
+#     LiveKit runs in TCP-only mode using its embedded TURN/TLS on :443.
+#     This adds a hop vs. direct UDP, but it's the trade-off for Render.
+#     If you need lower latency, deploy LiveKit somewhere that gives you raw
+#     UDP (Fly.io, a VPS, or LiveKit Cloud) and just point LIVEKIT_URL there.
 #
-# Use the Starter plan (not Free). Free sleeps after idle and drops the
-# long-lived WebSockets the signaling layer depends on.
+# Env vars to set in the Render dashboard AFTER the blueprint creates the
+# services (these are marked `sync: false` so they aren't committed):
+#   On `remote-access`:
+#     LIVEKIT_URL          wss://<livekit-service>.onrender.com
+#     LIVEKIT_API_KEY      any string (>=8 chars), shared with the livekit svc
+#     LIVEKIT_API_SECRET   any string (>=32 chars), shared with the livekit svc
+#   On `livekit`:
+#     LIVEKIT_KEYS         "<LIVEKIT_API_KEY>: <LIVEKIT_API_SECRET>"
+#                          (note the literal colon-space; that's the format
+#                          LiveKit expects in its config)
 
 services:
   - type: web
@@ -30,3 +41,35 @@ services:
         value: "20"
       - key: NODE_ENV
         value: production
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+
+  - type: web
+    name: livekit
+    runtime: image
+    plan: starter
+    region: frankfurt
+    image:
+      url: docker.io/livekit/livekit-server:latest
+    # LiveKit reads its config from --config and env vars. We set everything
+    # via env so the YAML stays the only place a deploy knob lives.
+    dockerCommand: /livekit-server --bind 0.0.0.0 --port 7880 --node-ip 0.0.0.0
+    envVars:
+      - key: LIVEKIT_KEYS
+        sync: false
+      # Force TCP-only TURN/TLS for media. Render doesn't expose UDP.
+      - key: LIVEKIT_RTC_USE_EXTERNAL_IP
+        value: "true"
+      - key: LIVEKIT_RTC_TCP_PORT
+        value: "7881"
+      - key: LIVEKIT_RTC_PORT_RANGE_START
+        value: "0"
+      - key: LIVEKIT_RTC_PORT_RANGE_END
+        value: "0"
+      # Make signaling reachable via Render's HTTPS layer on the same port.
+      - key: PORT
+        value: "7880"

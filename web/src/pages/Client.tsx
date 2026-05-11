@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
+import { Voice } from "../lib/voice";
 import { Eye, User, KeyRound, ArrowRight, Loader2, AlertTriangle, XCircle, Volume2, VolumeX, Maximize2, Minimize2, PowerOff, Send, Lightbulb, MousePointerClick, Shield, PanelRightOpen, PanelRightClose, Mic, MicOff } from "lucide-react";
 import { t } from "../i18n";
 type ClientState = {
@@ -53,11 +54,14 @@ export function ClientPage({
   });
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
+  const voiceRef = useRef<Voice | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const hardDisconnect = useCallback((reason: string, terminalKind: "disconnected" | "rejected" = "disconnected") => {
     peerRef.current?.close();
     peerRef.current = null;
+    voiceRef.current?.close();
+    voiceRef.current = null;
     signalingRef.current?.close();
     signalingRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -112,12 +116,6 @@ export function ClientPage({
           v.srcObject = stream;
           v.play().catch(err => console.warn("[client] video.play():", err));
         },
-        onRemoteAudioStream: stream => {
-          const a = remoteAudioRef.current;
-          if (!a) return;
-          a.srcObject = stream;
-          a.play().catch(err => console.warn("[client] remote audio play():", err));
-        },
         onConnectionStateChange: s => {
           if (s === "failed" || s === "closed") hardDisconnect(t("client.dc.connectionClosed"));
         },
@@ -129,6 +127,21 @@ export function ClientPage({
         }
       });
       peerRef.current = peer;
+      // Join the LiveKit room for voice. Same room name as the host
+      // (session code), so audio flows through the SFU.
+      const sessCode = (trimmed || displayCode || "").toString();
+      const voice = new Voice({
+        onRemoteAudioStream: stream => {
+          const a = remoteAudioRef.current;
+          if (!a) return;
+          if (a.srcObject !== stream) a.srcObject = stream;
+          a.play().catch(err => console.warn("[client] remote audio play():", err));
+        },
+      });
+      voiceRef.current = voice;
+      void voice.open(sessCode, "client", clientName).then(ok => {
+        if (!ok) console.warn("[client] LiveKit voice unavailable - mic button will fail to publish");
+      });
       setState(s => s.kind === "connecting" || s.kind === "waiting" ? {
         kind: "connected",
         code: s.code,
@@ -206,12 +219,10 @@ export function ClientPage({
     }
   };
   const toggleMic = useCallback(async () => {
-    const peer = peerRef.current;
-    if (!peer || micBusy) return;
-    // The click on the Mic button is a guaranteed user gesture. Use it to
-    // (re)play the remote audio element too — autoplay can stay blocked
-    // when the connection was established without a recent user gesture,
-    // and there's no other moment on this side where we get a fresh one.
+    const voice = voiceRef.current;
+    if (!voice || micBusy) return;
+    // The click on the Mic button is a guaranteed user gesture - use it
+    // to unblock the remote audio element if autoplay was previously denied.
     const a = remoteAudioRef.current;
     if (a && a.paused) {
       a.play().catch(err => console.warn("[client] remote audio play() on toggleMic:", err));
@@ -220,10 +231,10 @@ export function ClientPage({
     setMicError(null);
     try {
       if (micOn) {
-        peer.closeMic();
+        voice.closeMic();
         setMicOn(false);
       } else {
-        const ok = await peer.openMic();
+        const ok = await voice.openMic();
         if (ok) {
           setMicOn(true);
         } else {
@@ -390,6 +401,7 @@ export function ClientPage({
   }, [connected, controlOn]);
   useEffect(() => () => {
     peerRef.current?.close();
+    voiceRef.current?.close();
     signalingRef.current?.close();
   }, []);
   if (state.kind === "idle" || state.kind === "disconnected" || state.kind === "rejected") {

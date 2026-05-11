@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { SessionManager, send } from "./session-manager.js";
 import type { AgentToServer, ClientToServer, ServerToAgent } from "./types.js";
 import { handleInstall, isInstallPath } from "./install-handler.js";
+import { readLiveKitConfig, mintLiveKitToken } from "./livekit.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const DEFAULT_WEB_ROOT = resolve(__dirname, "..", "..", "web", "dist");
@@ -213,6 +214,27 @@ export function createApp(config: AppConfig = {}): AppInstance {
         live: Boolean(agent),
         agent: agent ? { agentId: agent.agentId, registeredAt: agent.registeredAt } : null,
       });
+    }
+    if (path === "/api/livekit/token") {
+      // Mint a short-lived JWT so the browser can join the LiveKit room for
+      // this session. We deliberately do NOT require AUTOPAIR auth here -
+      // the session code is the access control (anyone with the same code
+      // joins the same room, which is exactly what we want for the
+      // host/client pair). The server-side env vars are the secret, and the
+      // browser never sees them.
+      const body = await readJsonBody(req);
+      const sessionCode = body && typeof body.sessionCode === "string" ? body.sessionCode.trim() : "";
+      const role = body && (body.role === "host" || body.role === "client") ? body.role : "";
+      const displayName = body && typeof body.displayName === "string" ? body.displayName : "";
+      if (!sessionCode || !role) return writeJson(res, 400, { ok: false, error: "missing-fields" });
+      const lkCfg = readLiveKitConfig();
+      if (!lkCfg) return writeJson(res, 503, { ok: false, error: "livekit-not-configured" });
+      try {
+        const minted = await mintLiveKitToken({ config: lkCfg, sessionCode, role, displayName });
+        return writeJson(res, 200, { ok: true, ...minted });
+      } catch (err) {
+        return writeJson(res, 500, { ok: false, error: "mint-failed", detail: String((err as Error)?.message ?? err) });
+      }
     }
     if (path === "/api/users/login") {
       if (!authorize(req, url)) return writeJson(res, 401, { ok: false, error: "unauthorized" });

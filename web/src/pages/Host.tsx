@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Signaling } from "../lib/signaling";
 import { Peer, type InputEvent } from "../lib/webrtc";
+import { Voice } from "../lib/voice";
 import { MonitorPlay, Copy, Link as LinkIcon, Check, X, PowerOff, AlertTriangle, Loader2, Shield, Activity, Cpu, ShieldCheck, CircleDot, KeyRound, PanelRightOpen, PanelRightClose, Mic, MicOff } from "lucide-react";
 import { t } from "../i18n";
 const AGENT_WS_URL = "ws://127.0.0.1:8766";
@@ -54,6 +55,7 @@ export function HostPage({
   const [micError, setMicError] = useState<string | null>(null);
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
+  const voiceRef = useRef<Voice | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const agentRef = useRef<WebSocket | null>(null);
@@ -161,6 +163,8 @@ export function HostPage({
     streamRef.current = null;
     peerRef.current?.close();
     peerRef.current = null;
+    voiceRef.current?.close();
+    voiceRef.current = null;
     signalingRef.current?.close();
     signalingRef.current = null;
     closeAgent();
@@ -216,17 +220,31 @@ export function HostPage({
       }
       const peer = new Peer(sig, "host", {
         onInput: handleRemoteInput,
-        onRemoteAudioStream: stream => {
-          const a = remoteAudioRef.current;
-          if (!a) return;
-          a.srcObject = stream;
-          a.play().catch(err => console.warn("[host] remote audio play():", err));
-        },
         onConnectionStateChange: s => {
           if (s === "failed" || s === "closed") hardDisconnect(t("host.dc.connectionClosed"));
         }
       });
       peerRef.current = peer;
+      // Connect to the LiveKit room for voice. Room name == session code,
+      // so the host and the client end up in the same room. If the server
+      // doesn't have LIVEKIT_* env vars set, open() resolves false and the
+      // mic button stays disabled - the rest of the session is unaffected.
+      const stateNow = state;
+      const code = stateNow.kind === "waiting" || stateNow.kind === "request" || stateNow.kind === "connecting" || stateNow.kind === "connected"
+        ? stateNow.code
+        : "";
+      const voice = new Voice({
+        onRemoteAudioStream: stream => {
+          const a = remoteAudioRef.current;
+          if (!a) return;
+          if (a.srcObject !== stream) a.srcObject = stream;
+          a.play().catch(err => console.warn("[host] remote audio play():", err));
+        },
+      });
+      voiceRef.current = voice;
+      void voice.open(code, "host", hostName).then(ok => {
+        if (!ok) console.warn("[host] LiveKit voice unavailable - mic button will fail to publish");
+      });
       sig.send({
         type: "host:setControl",
         allowed: allowControlRef.current
@@ -267,6 +285,8 @@ export function HostPage({
       streamRef.current = null;
       peerRef.current?.close();
       peerRef.current = null;
+      voiceRef.current?.close();
+      voiceRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
       if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
       setMicOn(false);
@@ -370,12 +390,12 @@ export function HostPage({
     if (next) ensureAgent();else closeAgent();
   };
   const toggleMic = useCallback(async () => {
-    const peer = peerRef.current;
-    if (!peer || micBusy) return;
+    const voice = voiceRef.current;
+    if (!voice || micBusy) return;
     // The click on the Mic button is a guaranteed user gesture. Use it to
-    // (re)play the remote audio element too — autoplay can stay blocked
-    // when the connection was established without a recent user gesture,
-    // and there's no other moment on this side where we get a fresh one.
+    // (re)play the remote audio element too - LiveKit's <audio> element
+    // can stay paused if autoplay was blocked, and this is our only
+    // reliably-user-driven moment to recover it.
     const a = remoteAudioRef.current;
     if (a && a.paused) {
       a.play().catch(err => console.warn("[host] remote audio play() on toggleMic:", err));
@@ -384,10 +404,10 @@ export function HostPage({
     setMicError(null);
     try {
       if (micOn) {
-        peer.closeMic();
+        voice.closeMic();
         setMicOn(false);
       } else {
-        const ok = await peer.openMic();
+        const ok = await voice.openMic();
         if (ok) {
           setMicOn(true);
         } else {
@@ -408,6 +428,7 @@ export function HostPage({
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach(t => t.stop());
     peerRef.current?.close();
+    voiceRef.current?.close();
     signalingRef.current?.close();
     try {
       agentRef.current?.close();

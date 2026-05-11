@@ -208,6 +208,14 @@ export function ClientPage({
   const toggleMic = useCallback(async () => {
     const peer = peerRef.current;
     if (!peer || micBusy) return;
+    // The click on the Mic button is a guaranteed user gesture. Use it to
+    // (re)play the remote audio element too — autoplay can stay blocked
+    // when the connection was established without a recent user gesture,
+    // and there's no other moment on this side where we get a fresh one.
+    const a = remoteAudioRef.current;
+    if (a && a.paused) {
+      a.play().catch(err => console.warn("[client] remote audio play() on toggleMic:", err));
+    }
     setMicBusy(true);
     setMicError(null);
     try {
@@ -589,7 +597,12 @@ export function ClientPage({
             <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>{t("host.dismiss")}</button>
           </div>}
 
-        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        <audio
+          ref={remoteAudioRef}
+          autoPlay
+          playsInline
+          style={{ position: "fixed", left: "-9999px", top: "-9999px", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        />
 
         <div className={["flex-1 min-h-0 flex", sidePanelOpen ? "flex-col lg:flex-row" : "flex-col", embed ? "" : "px-3 sm:px-5 md:px-6 pb-3 sm:pb-5 md:pb-6 gap-4 sm:gap-5"].join(" ")}>
           <div className="flex-1 min-h-0 flex flex-col">

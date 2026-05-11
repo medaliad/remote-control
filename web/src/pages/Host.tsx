@@ -372,6 +372,14 @@ export function HostPage({
   const toggleMic = useCallback(async () => {
     const peer = peerRef.current;
     if (!peer || micBusy) return;
+    // The click on the Mic button is a guaranteed user gesture. Use it to
+    // (re)play the remote audio element too — autoplay can stay blocked
+    // when the connection was established without a recent user gesture,
+    // and there's no other moment on this side where we get a fresh one.
+    const a = remoteAudioRef.current;
+    if (a && a.paused) {
+      a.play().catch(err => console.warn("[host] remote audio play() on toggleMic:", err));
+    }
     setMicBusy(true);
     setMicError(null);
     try {
@@ -512,7 +520,12 @@ export function HostPage({
               <button className="text-xs font-semibold text-red-700 hover:text-red-900 px-2 py-1 rounded-md hover:bg-red-100 transition-colors" onClick={() => setMicError(null)}>{t("host.dismiss")}</button>
             </div>}
 
-          <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+          <audio
+            ref={remoteAudioRef}
+            autoPlay
+            playsInline
+            style={{ position: "fixed", left: "-9999px", top: "-9999px", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+          />
 
           {allowControl && agentStatus !== "up" && <div className={["flex items-start gap-3 p-3 sm:p-4 border-b animate-slide-up shrink-0", agentStatus === "down" ? "border-danger/40 bg-red-50 text-red-800" : "border-warning/40 bg-amber-50 text-amber-800"].join(" ")}>
               <AlertTriangle className={["shrink-0 mt-0.5 w-5 h-5", agentStatus === "down" ? "text-danger" : "text-warning"].join(" ")} strokeWidth={2.2} />

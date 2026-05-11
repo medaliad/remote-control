@@ -80,7 +80,7 @@ export class Peer {
         // samples.
         remoteMicStream = new MediaStream([micTransceiver.receiver.track]);
       } catch (err) {
-        console.warn("[peer] addTransceiver(audio) failed — mic toggles will fall back to addTrack:", err);
+        console.warn("[peer] addTransceiver(audio) failed - mic toggles will fall back to addTrack:", err);
         micTransceiver = null;
         remoteMicStream = null;
       }
@@ -233,7 +233,7 @@ export class Peer {
           console.warn("[peer] closeMic replaceTrack(null):", err);
         });
       } else if (track && stream) {
-        // Legacy fallback path — does renegotiate.
+        // Legacy fallback path - does renegotiate.
         try {
           this.peer.removeTrack(track, stream);
         } catch (err) {

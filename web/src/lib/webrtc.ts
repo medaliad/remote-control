@@ -29,6 +29,21 @@ export interface PeerHandlers {
 }
 export class Peer {
   private readonly peer: SimplePeer.Instance;
+  /**
+   * Pre-allocated audio transceiver. Its m-line is part of the initial
+   * offer/answer (we add it synchronously after `new SimplePeer` but before
+   * `simple-peer`'s queued initial `negotiate()` microtask fires), so
+   * toggling the mic only swaps the track on this sender — no SDP
+   * renegotiation, and no risk of `simple-peer` destroying the peer because
+   * an ICE check lost during renegotiation.
+   */
+  private readonly micTransceiver: RTCRtpTransceiver | null;
+  /**
+   * The remote stream that will eventually carry the peer's mic audio. We
+   * synthesize it from the receiver track up front so we can hand it to the
+   * UI immediately, even though no audio is flowing through it yet.
+   */
+  private readonly remoteMicStream: MediaStream | null;
   private destroyed = false;
   private micStream: MediaStream | null = null;
   private micTrack: MediaStreamTrack | null = null;
@@ -46,6 +61,41 @@ export class Peer {
         }]
       }
     });
+    // Reach the underlying RTCPeerConnection. `simple-peer`'s constructor has
+    // already created the data channel (for the initiator) or wired
+    // `ondatachannel` (for the answerer) and has queued its initial negotiate
+    // call via `queueMicrotask`. We're still synchronous here, so anything we
+    // add to `pc` is included in that first offer/answer.
+    const internal = this.peer as unknown as { _pc?: RTCPeerConnection };
+    const pc = internal._pc ?? null;
+    let micTransceiver: RTCRtpTransceiver | null = null;
+    let remoteMicStream: MediaStream | null = null;
+    if (pc) {
+      try {
+        micTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+        // The receiver's track is live from negotiation onward; wrap it into a
+        // MediaStream so the UI can attach it to an <audio> element straight
+        // away. No data flows through it until the remote peer enables the mic
+        // (via `replaceTrack`), at which point the same track starts producing
+        // samples.
+        remoteMicStream = new MediaStream([micTransceiver.receiver.track]);
+      } catch (err) {
+        console.warn("[peer] addTransceiver(audio) failed — mic toggles will fall back to addTrack:", err);
+        micTransceiver = null;
+        remoteMicStream = null;
+      }
+    }
+    this.micTransceiver = micTransceiver;
+    this.remoteMicStream = remoteMicStream;
+    // Hand the pre-allocated remote mic stream to the UI as soon as the
+    // connection is up. We do this in the "connect" handler so the <audio>
+    // element is wired before any audio could start flowing.
+    let remoteMicDelivered = false;
+    const deliverRemoteMic = (): void => {
+      if (remoteMicDelivered || !this.remoteMicStream) return;
+      remoteMicDelivered = true;
+      handlers.onRemoteAudioStream?.(this.remoteMicStream);
+    };
     this.peer.on("signal", data => {
       if (this.destroyed) return;
       signaling.send({
@@ -67,6 +117,7 @@ export class Peer {
     this.peer.on("connect", () => {
       handlers.onChannelOpen?.();
       handlers.onConnectionStateChange?.("connected");
+      deliverRemoteMic();
     });
     this.peer.on("data", buf => {
       try {
@@ -95,6 +146,12 @@ export class Peer {
    * Acquire the microphone and start sending audio to the peer.
    * Returns true on success. If the mic is already open, this is a no-op
    * (and ensures the track is enabled).
+   *
+   * Implementation note: we attach the mic via `replaceTrack` on a
+   * pre-allocated transceiver (set up in the constructor), so toggling the
+   * mic does NOT trigger SDP renegotiation. This avoids the failure mode
+   * where mid-call renegotiation lost an ICE check and `simple-peer`
+   * destroyed the whole peer connection.
    */
   async openMic(): Promise<boolean> {
     if (this.destroyed) return false;
@@ -127,6 +184,23 @@ export class Peer {
     this.micStream = stream;
     this.micTrack = track;
     track.enabled = true;
+    if (this.micTransceiver) {
+      // Fast path: swap the mic onto the existing audio sender. No SDP
+      // renegotiation, no risk of destroying the peer.
+      try {
+        await this.micTransceiver.sender.replaceTrack(track);
+      } catch (err) {
+        console.error("[peer] openMic replaceTrack:", err);
+        try { track.stop(); } catch {}
+        stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+        this.micStream = null;
+        this.micTrack = null;
+        return false;
+      }
+      return true;
+    }
+    // Fallback (browser that didn't allow pre-adding a transceiver):
+    // do the legacy `addTrack` path, which DOES renegotiate.
     try {
       this.peer.addTrack(track, stream);
     } catch (err) {
@@ -143,17 +217,28 @@ export class Peer {
   }
   /**
    * Stop sending mic audio and release the device.
+   *
+   * Like `openMic`, this uses `replaceTrack(null)` on the pre-allocated sender
+   * when possible, so it does not trigger renegotiation.
    */
   closeMic(): void {
     const track = this.micTrack;
     const stream = this.micStream;
     this.micTrack = null;
     this.micStream = null;
-    if (track && stream && !this.destroyed) {
-      try {
-        this.peer.removeTrack(track, stream);
-      } catch (err) {
-        console.warn("[peer] closeMic removeTrack:", err);
+    if (!this.destroyed) {
+      if (this.micTransceiver) {
+        // Fast path: detach the track from the sender. No renegotiation.
+        this.micTransceiver.sender.replaceTrack(null).catch(err => {
+          console.warn("[peer] closeMic replaceTrack(null):", err);
+        });
+      } else if (track && stream) {
+        // Legacy fallback path — does renegotiate.
+        try {
+          this.peer.removeTrack(track, stream);
+        } catch (err) {
+          console.warn("[peer] closeMic removeTrack:", err);
+        }
       }
     }
     if (track) {

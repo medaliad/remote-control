@@ -56,6 +56,7 @@ export function HostPage({
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const voiceRef = useRef<Voice | null>(null);
+  const sessionCodeRef = useRef<string>("");
   const streamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const agentRef = useRef<WebSocket | null>(null);
@@ -193,6 +194,7 @@ export function HostPage({
       return;
     }
     sig.on("session:created", msg => {
+      sessionCodeRef.current = msg.code;
       setState({
         kind: "waiting",
         code: msg.code
@@ -226,13 +228,13 @@ export function HostPage({
       });
       peerRef.current = peer;
       // Connect to the LiveKit room for voice. Room name == session code,
-      // so the host and the client end up in the same room. If the server
-      // doesn't have LIVEKIT_* env vars set, open() resolves false and the
-      // mic button stays disabled - the rest of the session is unaffected.
-      const stateNow = state;
-      const code = stateNow.kind === "waiting" || stateNow.kind === "request" || stateNow.kind === "connecting" || stateNow.kind === "connected"
-        ? stateNow.code
-        : "";
+      // which we capture in sessionCodeRef when the server emits
+      // session:created. Reading the React state here would give us stale
+      // closure data (the state at createSession time, before the code
+      // existed). If the server doesn't have LIVEKIT_* env vars set,
+      // open() resolves false and the mic stays disabled - rest of the
+      // session is unaffected.
+      const code = sessionCodeRef.current;
       const voice = new Voice({
         onRemoteAudioStream: stream => {
           const a = remoteAudioRef.current;

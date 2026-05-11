@@ -55,6 +55,7 @@ export function ClientPage({
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const voiceRef = useRef<Voice | null>(null);
+  const sessionCodeRef = useRef<string>("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const hardDisconnect = useCallback((reason: string, terminalKind: "disconnected" | "rejected" = "disconnected") => {
@@ -87,6 +88,7 @@ export function ClientPage({
     const trimmed = code.trim().toUpperCase();
     if (!autoPairToken && !trimmed) return;
     const displayCode = trimmed || "AUTO";
+    if (trimmed) sessionCodeRef.current = trimmed;
     setState({
       kind: "requesting",
       code: displayCode
@@ -127,21 +129,29 @@ export function ClientPage({
         }
       });
       peerRef.current = peer;
-      // Join the LiveKit room for voice. Same room name as the host
-      // (session code), so audio flows through the SFU.
-      const sessCode = (trimmed || displayCode || "").toString();
-      const voice = new Voice({
-        onRemoteAudioStream: stream => {
-          const a = remoteAudioRef.current;
-          if (!a) return;
-          if (a.srcObject !== stream) a.srcObject = stream;
-          a.play().catch(err => console.warn("[client] remote audio play():", err));
-        },
-      });
-      voiceRef.current = voice;
-      void voice.open(sessCode, "client", clientName).then(ok => {
-        if (!ok) console.warn("[client] LiveKit voice unavailable - mic button will fail to publish");
-      });
+      // Join the LiveKit room for voice. Room name must match the host's
+      // session code so we land in the same SFU room. For the normal flow
+      // we have it from the user's typed code (sessionCodeRef set in
+      // sendRequest). For the autopair flow we currently fall through with
+      // an empty code - autopair voice would need a server message that
+      // carries the real session code; track that as a follow-up.
+      const sessCode = sessionCodeRef.current;
+      if (sessCode) {
+        const voice = new Voice({
+          onRemoteAudioStream: stream => {
+            const a = remoteAudioRef.current;
+            if (!a) return;
+            if (a.srcObject !== stream) a.srcObject = stream;
+            a.play().catch(err => console.warn("[client] remote audio play():", err));
+          },
+        });
+        voiceRef.current = voice;
+        void voice.open(sessCode, "client", clientName).then(ok => {
+          if (!ok) console.warn("[client] LiveKit voice unavailable - mic button will fail to publish");
+        });
+      } else {
+        console.warn("[client] no session code available - voice disabled (autopair flow)");
+      }
       setState(s => s.kind === "connecting" || s.kind === "waiting" ? {
         kind: "connected",
         code: s.code,

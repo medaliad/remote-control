@@ -82,16 +82,6 @@ export class Voice {
         noiseSuppression: true,
         autoGainControl: true,
       },
-      // Force media to traverse LiveKit Cloud's TURN/TLS relays on 443/TCP
-      // instead of trying UDP first. The direct UDP path is blocked on many
-      // corporate / mobile / hotspot networks, which causes the
-      // "could not establish pc connection" failure followed by a 1006 WS
-      // close. Routing through TURN adds ~30-80ms of latency but is the
-      // only path that reliably works from arbitrary networks. For voice
-      // (single audio track, ~20-40 kbps) the latency hit is inaudible.
-      rtcConfig: {
-        iceTransportPolicy: "relay",
-      },
     });
     room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, _participant: RemoteParticipant) => {
       if (track.kind !== Track.Kind.Audio) return;
@@ -116,7 +106,18 @@ export class Voice {
       // hardDisconnect path will trigger a full teardown anyway.
     });
     try {
-      await room.connect(tokenResp.url, tokenResp.token);
+      // Force media to traverse LiveKit Cloud's TURN/TLS relays on 443/TCP
+      // instead of trying UDP first. The direct UDP path is blocked on many
+      // corporate / mobile / hotspot networks, which causes the
+      // "could not establish pc connection" failure followed by a 1006 WS
+      // close. Routing through TURN adds ~30-80ms of latency but is the
+      // only path that reliably works from arbitrary networks. For voice
+      // (single audio track, ~20-40 kbps) the latency hit is inaudible.
+      await room.connect(tokenResp.url, tokenResp.token, {
+        rtcConfig: {
+          iceTransportPolicy: "relay",
+        },
+      });
     } catch (err) {
       console.error("[voice] room.connect failed:", err);
       try { await room.disconnect(); } catch {}

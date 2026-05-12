@@ -403,8 +403,8 @@ export function createApp(config: AppConfig = {}): AppInstance {
         send(ws, { type: "session:created", code: r.session.code });
         if (r.pairedClient) {
           send(r.pairedClient, { type: "request:approved" });
-          send(r.session.hostWs, { type: "peer:ready", role: "host", allowControl: r.session.allowControl });
-          send(r.pairedClient, { type: "peer:ready", role: "client", allowControl: r.session.allowControl });
+          send(r.session.hostWs, { type: "peer:ready", role: "host", allowControl: r.session.allowControl, code: r.session.code });
+          send(r.pairedClient, { type: "peer:ready", role: "client", allowControl: r.session.allowControl, code: r.session.code });
         }
         return;
       }
@@ -416,8 +416,8 @@ export function createApp(config: AppConfig = {}): AppInstance {
         }
         console.log(`[session] approved code=${r.session.code} request=${msg.requestId}`);
         send(r.clientWs, { type: "request:approved" });
-        send(r.session.hostWs, { type: "peer:ready", role: "host", allowControl: r.session.allowControl });
-        send(r.clientWs, { type: "peer:ready", role: "client", allowControl: r.session.allowControl });
+        send(r.session.hostWs, { type: "peer:ready", role: "host", allowControl: r.session.allowControl, code: r.session.code });
+        send(r.clientWs, { type: "peer:ready", role: "client", allowControl: r.session.allowControl, code: r.session.code });
         return;
       }
       case "host:reject": {
@@ -498,8 +498,8 @@ export function createApp(config: AppConfig = {}): AppInstance {
         }
         console.log(`[session] auto-paired code=${r.session.code} manager="${r.managerName}"`);
         send(r.clientWs, { type: "request:approved" });
-        send(r.session.hostWs, { type: "peer:ready", role: "host", allowControl: r.session.allowControl });
-        send(r.clientWs, { type: "peer:ready", role: "client", allowControl: r.session.allowControl });
+        send(r.session.hostWs, { type: "peer:ready", role: "host", allowControl: r.session.allowControl, code: r.session.code });
+        send(r.clientWs, { type: "peer:ready", role: "client", allowControl: r.session.allowControl, code: r.session.code });
         return;
       }
       case "client:cancel": {

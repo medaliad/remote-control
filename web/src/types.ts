@@ -49,6 +49,10 @@ export type ServerToClient = {
   type: "peer:ready";
   role: "host" | "client";
   allowControl: boolean;
+  /** Session code (== LiveKit room name). Always present so both sides can
+   *  join voice without the client having to know its own code up-front,
+   *  which is the autopair / embed case. */
+  code: string;
 } | {
   type: "peer:left";
   reason: string;

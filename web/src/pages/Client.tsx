@@ -130,13 +130,12 @@ export function ClientPage({
       });
       peerRef.current = peer;
       // Join the LiveKit room for voice. Room name must match the host's
-      // session code so we land in the same SFU room. For the normal flow
-      // we have it from the user's typed code (sessionCodeRef set in
-      // sendRequest). For the autopair flow we currently fall through with
-      // an empty code - autopair voice would need a server message that
-      // carries the real session code; track that as a follow-up.
-      const sessCode = sessionCodeRef.current;
+      // session code so we both land in the same SFU room. The server now
+      // attaches the code to every peer:ready, so this works the same way
+      // in both the typed-code flow and the autopair/embed flow.
+      const sessCode = (msg.code || sessionCodeRef.current || "").toString();
       if (sessCode) {
+        sessionCodeRef.current = sessCode;
         const voice = new Voice({
           onRemoteAudioStream: stream => {
             const a = remoteAudioRef.current;
@@ -150,7 +149,7 @@ export function ClientPage({
           if (!ok) console.warn("[client] LiveKit voice unavailable - mic button will fail to publish");
         });
       } else {
-        console.warn("[client] no session code available - voice disabled (autopair flow)");
+        console.warn("[client] no session code in peer:ready - voice disabled");
       }
       setState(s => s.kind === "connecting" || s.kind === "waiting" ? {
         kind: "connected",

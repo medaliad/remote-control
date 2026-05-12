@@ -214,7 +214,7 @@ export function HostPage({
         return s;
       });
     });
-    sig.on("peer:ready", async () => {
+    sig.on("peer:ready", async msg => {
       if (autoPairToken && !allowControlRef.current) {
         allowControlRef.current = true;
         setAllowControl(true);
@@ -227,14 +227,12 @@ export function HostPage({
         }
       });
       peerRef.current = peer;
-      // Connect to the LiveKit room for voice. Room name == session code,
-      // which we capture in sessionCodeRef when the server emits
-      // session:created. Reading the React state here would give us stale
-      // closure data (the state at createSession time, before the code
-      // existed). If the server doesn't have LIVEKIT_* env vars set,
-      // open() resolves false and the mic stays disabled - rest of the
-      // session is unaffected.
-      const code = sessionCodeRef.current;
+      // Connect to the LiveKit room for voice. Room name == session code.
+      // The server includes the code in every peer:ready, so we use that
+      // directly. We also fall back to sessionCodeRef (set on
+      // session:created) to be defensive against an older server.
+      const code = (msg.code || sessionCodeRef.current || "").toString();
+      if (code) sessionCodeRef.current = code;
       const voice = new Voice({
         onRemoteAudioStream: stream => {
           const a = remoteAudioRef.current;
@@ -244,9 +242,13 @@ export function HostPage({
         },
       });
       voiceRef.current = voice;
-      void voice.open(code, "host", hostName).then(ok => {
-        if (!ok) console.warn("[host] LiveKit voice unavailable - mic button will fail to publish");
-      });
+      if (code) {
+        void voice.open(code, "host", hostName).then(ok => {
+          if (!ok) console.warn("[host] LiveKit voice unavailable - mic button will fail to publish");
+        });
+      } else {
+        console.warn("[host] no session code in peer:ready - voice disabled");
+      }
       sig.send({
         type: "host:setControl",
         allowed: allowControlRef.current

@@ -46,6 +46,10 @@ export function ClientPage({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
+  // True once the LiveKit room has actually connected. The mic button stays
+  // disabled until then so users can't click it while voice is still
+  // negotiating (which would just fail with a "room not connected" warning).
+  const [voiceReady, setVoiceReady] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(() => {
     if (embed) return false;
@@ -70,6 +74,7 @@ export function ClientPage({
     setMicOn(false);
     setMicBusy(false);
     setMicError(null);
+    setVoiceReady(false);
     setState(s => {
       if (terminalKind === "rejected" && (s.kind === "requesting" || s.kind === "waiting")) {
         return {
@@ -145,8 +150,13 @@ export function ClientPage({
           },
         });
         voiceRef.current = voice;
+        setVoiceReady(false);
         void voice.open(sessCode, "client", clientName).then(ok => {
-          if (!ok) console.warn("[client] LiveKit voice unavailable - mic button will fail to publish");
+          if (ok) {
+            setVoiceReady(true);
+          } else {
+            console.warn("[client] LiveKit voice unavailable - mic button will fail to publish");
+          }
         });
       } else {
         console.warn("[client] no session code in peer:ready - voice disabled");
@@ -229,7 +239,7 @@ export function ClientPage({
   };
   const toggleMic = useCallback(async () => {
     const voice = voiceRef.current;
-    if (!voice || micBusy) return;
+    if (!voice || micBusy || !voiceReady) return;
     // The click on the Mic button is a guaranteed user gesture - use it
     // to unblock the remote audio element if autoplay was previously denied.
     const a = remoteAudioRef.current;
@@ -253,7 +263,7 @@ export function ClientPage({
     } finally {
       setMicBusy(false);
     }
-  }, [micOn, micBusy]);
+  }, [micOn, micBusy, voiceReady]);
   const toggleFullscreen = () => {
     const v = videoRef.current;
     if (!v) return;
@@ -581,8 +591,8 @@ export function ClientPage({
 
           <div className="flex-1 min-w-[0.5rem]" />
 
-          <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-label={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-pressed={micOn}>
-            {micBusy ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
+          <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy || !voiceReady} title={!voiceReady ? "Connecting voice…" : micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-label={!voiceReady ? "Connecting voice…" : micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-pressed={micOn}>
+            {micBusy || !voiceReady ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
             <span className="hidden md:inline">{micOn ? t("host.connected.micOn") : t("host.connected.micOff")}</span>
           </button>
 

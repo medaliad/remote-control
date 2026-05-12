@@ -52,6 +52,10 @@ export function HostPage({
   const [agentBackend, setAgentBackend] = useState<string>("");
   const [micOn, setMicOn] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
+  // True once the LiveKit room has actually connected. The mic button stays
+  // disabled until then so users can't click it while voice is still
+  // negotiating (which would just fail with a "room not connected" warning).
+  const [voiceReady, setVoiceReady] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const signalingRef = useRef<Signaling | null>(null);
   const peerRef = useRef<Peer | null>(null);
@@ -242,9 +246,14 @@ export function HostPage({
         },
       });
       voiceRef.current = voice;
+      setVoiceReady(false);
       if (code) {
         void voice.open(code, "host", hostName).then(ok => {
-          if (!ok) console.warn("[host] LiveKit voice unavailable - mic button will fail to publish");
+          if (ok) {
+            setVoiceReady(true);
+          } else {
+            console.warn("[host] LiveKit voice unavailable - mic button will fail to publish");
+          }
         });
       } else {
         console.warn("[host] no session code in peer:ready - voice disabled");
@@ -296,6 +305,7 @@ export function HostPage({
       setMicOn(false);
       setMicBusy(false);
       setMicError(null);
+      setVoiceReady(false);
       setState(s => {
         if (s.kind === "connected" || s.kind === "connecting" || s.kind === "request") {
           return {
@@ -395,7 +405,7 @@ export function HostPage({
   };
   const toggleMic = useCallback(async () => {
     const voice = voiceRef.current;
-    if (!voice || micBusy) return;
+    if (!voice || micBusy || !voiceReady) return;
     // The click on the Mic button is a guaranteed user gesture. Use it to
     // (re)play the remote audio element too - LiveKit's <audio> element
     // can stay paused if autoplay was blocked, and this is our only
@@ -421,7 +431,7 @@ export function HostPage({
     } finally {
       setMicBusy(false);
     }
-  }, [micOn, micBusy]);
+  }, [micOn, micBusy, voiceReady]);
   const copyCode = (code: string) => {
     navigator.clipboard.writeText(code).catch(() => {});
   };
@@ -522,8 +532,8 @@ export function HostPage({
               <StatusPill kind={statusKind} label={statusLabel} compact />
             </div>
             <div className="flex-1 min-w-[0.5rem]" />
-            <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy} title={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-label={micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-pressed={micOn}>
-              {micBusy ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
+            <button className={["inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm border transition-all duration-200 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed", micOn ? "text-white bg-gradient-to-r from-accent to-accent-hi border-accent-hi shadow-glow hover:shadow-glow-lg focus:ring-accent/30" : "text-text bg-canvas border-line hover:bg-surface-2 hover:border-border-hi focus:ring-line"].join(" ")} onClick={toggleMic} disabled={micBusy || !voiceReady} title={!voiceReady ? "Connecting voice…" : micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-label={!voiceReady ? "Connecting voice…" : micOn ? t("host.connected.micToggleOff") : t("host.connected.micToggleOn")} aria-pressed={micOn}>
+              {micBusy || !voiceReady ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.2} /> : micOn ? <Mic className="w-4 h-4" strokeWidth={2.4} /> : <MicOff className="w-4 h-4" strokeWidth={2.2} />}
               <span className="hidden md:inline">{micOn ? t("host.connected.micOn") : t("host.connected.micOff")}</span>
             </button>
             <button className="hidden sm:inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-sm text-text bg-canvas border border-line transition-all duration-200 hover:bg-surface-2 hover:border-border-hi focus:outline-none focus:ring-4 focus:ring-line" onClick={() => setSidePanelOpen(o => !o)} title={sidePanelOpen ? t("host.connected.hideInfoTitle") : t("host.connected.showInfoTitle")} aria-label={sidePanelOpen ? t("host.connected.hideInfoTitle") : t("host.connected.showInfoTitle")} aria-expanded={sidePanelOpen}>
